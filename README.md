@@ -9,6 +9,15 @@ Shelf follows the same principles as [CLIP](https://github.com/mcclowes/clip):
 - It reuses `gh` for GitHub, so it never handles credentials.
 - JSON is the default output when piped, and failures are structured.
 
+## Install
+
+```sh
+brew install mcclowes/shelf/shelf
+shelf --version
+```
+
+The Homebrew formula installs Node.js 24 or later.
+
 ## Use
 
 ```sh

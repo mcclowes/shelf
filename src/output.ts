@@ -16,6 +16,8 @@ export function renderText(result: any): string {
   if (Array.isArray(result.items)) return renderItems(result);
   if (typeof result.github_only === 'number') return renderScan(result);
   if ('described' in result) return [result.description ? `Described ${result.described}` : `Cleared override for ${result.described}`, result.next].filter(Boolean).join('\n');
+  if (typeof result.cleared === 'string') return `Removed local relation from ${result.cleared} to ${result.to}`;
+  if (typeof result.related === 'string') return `Related ${result.related} to ${result.to}`;
   if (typeof result.file === 'string') return `${result.changed ? 'Wrote' : 'Unchanged'} ${result.file}`;
   if (typeof result.id === 'string') return renderRepo(result);
   return JSON.stringify(result, null, 2);
@@ -34,10 +36,17 @@ function renderHelp(): string {
 }
 
 function renderItems(result: any): string {
-  const lines = result.items.map((item: any) => `${item.name}\t${item.description ?? '(no description)'}\t${item.path ?? item.remote ?? ''}`);
+  const lines = result.items.map((item: any) => item.direction ? relatedLine(item) : `${item.name}\t${item.description ?? '(no description)'}\t${item.path ?? item.remote ?? ''}`);
   if (!lines.length) lines.push('No results.');
   if (result.truncated) lines.push(`Showing ${result.items.length} of ${result.total}; increase --limit for more.`);
   return lines.join('\n');
+}
+
+const arrows = { outgoing: '→', incoming: '←' } as const;
+
+function relatedLine(item: any): string {
+  const target = item.name ?? `${item.ref} (not indexed)`;
+  return `${arrows[item.direction as keyof typeof arrows]} ${target}\t${item.relation ?? '(no relation given)'}\t${item.source}\t${item.path ?? item.remote ?? ''}`;
 }
 
 function renderScan(result: any): string {
@@ -46,6 +55,7 @@ function renderScan(result: any): string {
     `Roots: ${result.roots.join(', ')}`,
     ...(result.github.length ? [`GitHub: ${result.github.join(', ')}`] : []),
     ...(result.truncated ? ['Stopped early at the directory limit; narrow --root or lower --depth.'] : []),
+    ...(result.warnings ?? []).map((warning: string) => `Warning: ${warning}`),
   ].join('\n');
 }
 
@@ -57,5 +67,6 @@ function renderRepo(repo: any): string {
     ['last activity', repo.last_activity ?? repo.github?.pushed_at],
     ['github', repo.github && [repo.github.url, repo.github.private && 'private', repo.github.archived && 'archived', repo.github.fork && 'fork'].filter(Boolean).join(' ')],
   ];
-  return [repo.name, ...rows.filter(([, value]) => value).map(([key, value]) => `  ${key}: ${value}`)].join('\n');
+  const related = (repo.related ?? []).map((item: any) => `    ${relatedLine(item)}`);
+  return [repo.name, ...rows.filter(([, value]) => value).map(([key, value]) => `  ${key}: ${value}`), ...(related.length ? ['  related:', ...related] : [])].join('\n');
 }

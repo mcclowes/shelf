@@ -13,6 +13,7 @@ import { contract } from './contract.ts';
 import { clean } from './describe.ts';
 import { listGithub, validOwner } from './github.ts';
 import { page } from './output.ts';
+import { readDeclaredRelations, relatedTo } from './relations.ts';
 import { applyOverride, findRepo, mergeRepos, searchRepos, summary } from './repos.ts';
 import { defaultDepth, findRepositories, readLocalRepo } from './scan.ts';
 import { defaultSkillsDir, syncSkill } from './skill.ts';
@@ -36,7 +37,12 @@ function scan({ options }: Invocation) {
   if (!Number.isInteger(depth) || depth < 0 || depth > maxDepth) throw new Error(`--depth must be an integer from 0 to ${maxDepth}.`);
 
   const found = findRepositories(roots, depth);
-  const local = found.paths.map(readLocalRepo);
+  const warnings: string[] = [];
+  const local = found.paths.map(path => {
+    const declared = readDeclaredRelations(path);
+    warnings.push(...declared.warnings);
+    return { ...readLocalRepo(path), ...(declared.related?.length ? { related: declared.related } : {}) };
+  });
   const remote = github.flatMap(listGithub);
   const repos = mergeRepos(local, remote, config.overrides);
   const index: Index = { version: 1, scanned_at: new Date().toISOString(), roots, github, truncated: found.truncated, repos };
@@ -46,6 +52,7 @@ function scan({ options }: Invocation) {
     scanned_at: index.scanned_at, roots, github, truncated: found.truncated,
     total: repos.length, local: repos.filter(repo => repo.path).length, github_only: repos.filter(repo => !repo.path).length,
     undescribed: repos.filter(repo => !repo.description).length,
+    ...(warnings.length ? { warnings } : {}),
   };
 }
 
@@ -76,6 +83,32 @@ function describe({ args: [ref, text], options }: Invocation) {
   return { described: repo.id, description: description ?? null, ...(description ? {} : { next: 'Run shelf scan to restore the scanned description.' }) };
 }
 
+function relate({ args: [fromRef, toRef, text], options }: Invocation) {
+  if (options.clear && text) throw new Error('Pass a relation, or --clear to remove it, not both.');
+  const index = readIndex();
+  const from = findRepo(index.repos, fromRef);
+  const to = findRepo(index.repos, toRef);
+  if (from.id === to.id) throw new Error('A repository cannot relate to itself.');
+  const config = readConfig();
+  const key = { from: overrideKey(from), to: overrideKey(to) };
+  const others = config.relations.filter(entry => entry.from !== key.from || entry.to !== key.to);
+  if (options.clear) {
+    if (others.length === config.relations.length) throw new Error(`No local relation from ${from.id} to ${to.id}.`);
+    writeConfig({ ...config, relations: others });
+    return { cleared: from.id, to: to.id };
+  }
+  const relation = text ? clean(text) : undefined;
+  if (text && !relation) throw new Error('Relation is empty.');
+  writeConfig({ ...config, relations: [...others, { ...key, ...(relation ? { relation } : {}) }] });
+  return { related: from.id, to: to.id, relation: relation ?? null };
+}
+
+function related({ args: [ref], limit }: Invocation) {
+  const index = readIndex();
+  const repo = findRepo(index.repos, ref);
+  return { ...page(relatedTo(index.repos, readConfig().relations, repo), limit), scanned_at: index.scanned_at };
+}
+
 const commands: Record<string, Command> = {
   help: { minArgs: 0, maxArgs: 0, run: () => contract },
   schema: { minArgs: 0, maxArgs: 0, run: () => contract },
@@ -91,9 +124,12 @@ const commands: Record<string, Command> = {
   } },
   show: { minArgs: 1, maxArgs: 1, run: ({ args: [ref] }) => {
     const index = readIndex();
-    return { ...findRepo(index.repos, ref), scanned_at: index.scanned_at };
+    const repo = findRepo(index.repos, ref);
+    return { ...repo, related: relatedTo(index.repos, readConfig().relations, repo), scanned_at: index.scanned_at };
   } },
   describe: { minArgs: 1, maxArgs: 2, run: describe },
+  relate: { minArgs: 2, maxArgs: 3, run: relate },
+  related: { minArgs: 1, maxArgs: 1, run: related },
   sync: { minArgs: 0, maxArgs: 0, run: ({ options }) => syncSkill(options['skills-dir'] ?? defaultSkillsDir) },
 };
 

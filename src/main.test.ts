@@ -139,6 +139,53 @@ test('sync writes the skill once and refuses a directory it does not own', t => 
   assert.ok(!existsSync(join(other, 'shelf', '.shelf-owned')));
 });
 
+test('a repository declares related repositories in .shelf.json, visible from both ends', t => {
+  const { root, paths, json } = fixture(t);
+  write(join(paths.gamma, '.shelf.json'), JSON.stringify({ related: [
+    { repo: 'acme/alpha', relation: 'Consumes the alpha API' },
+    { repo: '../../delta', relation: 'Shares a database schema' },
+    { repo: 'https://github.com/acme/beta.git' },
+    { repo: 'github.com/acme/missing', relation: 'Deploy scripts' },
+    { relation: 'no repo' },
+  ] }));
+  write(join(paths.delta, '.shelf.json'), '{ not json');
+  const scanned = json('scan', '--root', root, '--github', 'acme');
+  assert.equal(scanned.warnings.length, 2);
+
+  const gamma = json('related', 'gamma');
+  assert.deepEqual(gamma.items.map((item: any) => [item.ref, item.name, item.direction, item.source, item.relation]), [
+    ['acme/alpha', 'alpha', 'outgoing', 'repo', 'Consumes the alpha API'],
+    ['https://github.com/acme/beta.git', 'beta', 'outgoing', 'repo', null],
+    ['../../delta', 'delta', 'outgoing', 'repo', 'Shares a database schema'],
+    ['github.com/acme/missing', null, 'outgoing', 'repo', 'Deploy scripts'],
+  ]);
+  assert.equal(gamma.items[2].path, paths.delta);
+
+  const alpha = json('related', 'alpha');
+  assert.deepEqual(alpha.items.map((item: any) => [item.name, item.direction, item.relation]), [['gamma', 'incoming', 'Consumes the alpha API']]);
+  assert.equal(json('show', 'alpha').related.length, 1);
+});
+
+test('relate records machine-local relations that survive rescans and win over repo files', t => {
+  const { root, paths, run, json } = fixture(t);
+  write(join(paths.gamma, '.shelf.json'), JSON.stringify({ related: [{ repo: 'alpha', relation: 'From the repo file' }] }));
+  json('scan', '--root', root);
+
+  assert.deepEqual(json('relate', 'gamma', 'alpha', 'Mine'), { related: paths.gamma, to: paths.alpha, relation: 'Mine' });
+  json('relate', 'delta', 'gamma');
+  json('scan');
+  assert.deepEqual(json('related', 'gamma').items.map((item: any) => [item.name, item.direction, item.source, item.relation]), [
+    ['alpha', 'outgoing', 'local', 'Mine'],
+    ['delta', 'incoming', 'local', null],
+  ]);
+
+  json('relate', 'gamma', 'alpha', '--clear');
+  assert.equal(json('related', 'gamma').items[0].source, 'repo');
+  assert.equal(run('relate', 'gamma', 'gamma').status, 1);
+  assert.equal(run('relate', 'gamma', 'missing').status, 1);
+  assert.equal(run('relate', 'gamma', 'delta', '--clear').status, 1);
+});
+
 test('schema describes the CLI offline and text output renders for people', t => {
   const { root, json, run } = fixture(t);
   assert.equal(json('schema').name, 'shelf');

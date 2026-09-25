@@ -26,10 +26,32 @@ shelf search billing api
 shelf show clip
 shelf list --undescribed
 shelf describe delta "Payments service for the Kiln web app"
+shelf related clip                                  # both directions
+shelf relate kiln-web delta "Calls the payments API"   # this machine only
 shelf sync                                          # writes ~/.claude/skills/shelf
 ```
 
 `shelf sync` installs a global skill that tells agents to use `search` and `show`, to read a repository's `AGENTS.md` or README once they have its path, and to fill in missing descriptions.
+
+## Related repositories
+
+Relations come from two places, and `shelf related` and `shelf show` merge them.
+
+- **In the repository.** A `.shelf.json` at the repository root declares relations that work for anyone who clones it:
+
+  ```json
+  {
+    "related": [
+      { "repo": "mcclowes/clip", "relation": "Follows CLIP's CLI conventions" },
+      { "repo": "../kiln-web", "relation": "Web client for this API" }
+    ]
+  }
+  ```
+
+  `repo` takes `owner/name`, `host/owner/name`, a Git URL, or a path relative to the repository. Prefer remotes, since paths depend on how the clones are laid out. Scan reads the file and reports a broken one as a warning. Relations that don't match an indexed repository still appear, marked as not indexed.
+- **On your machine.** `shelf relate <repo> <other> [relation]` records a relation in your Shelf configuration, keyed by remote like description overrides. It replaces a repository's own relation between the same pair, and `--clear` removes it.
+
+A relation shows on both repositories: as outgoing on the one that declares it and incoming on the other.
 
 ## How the index is built
 

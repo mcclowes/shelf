@@ -1,0 +1,5 @@
+{
+  "related": [
+    { "repo": "mcclowes/clip", "relation": "Shelf follows CLIP's CLI conventions: no runtime dependencies, JSON when piped, structured errors" }
+  ]
+}

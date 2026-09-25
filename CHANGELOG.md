@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Related repositories: declare them in a repository's `.shelf.json`, or record your own with `shelf relate`. `shelf related` and `shelf show` list them in both directions.
+
 ## [0.1.1] - 2026-09-25
 
 - Fix the Homebrew install: the release archive's `dist/main.js` is now executable.

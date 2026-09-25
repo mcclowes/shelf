@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-25
+
 - Related repositories: declare them in a repository's `.shelf.json`, or record your own with `shelf relate`. `shelf related` and `shelf show` list them in both directions.
 - A fork whose origin is upstream matches its GitHub repository through its other remotes, instead of appearing twice. `shelf show` lists every remote.
 - Search matches plurals and simple variants, so `clipboards` finds a clipboard manager.

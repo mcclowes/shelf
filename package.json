@@ -1,6 +1,6 @@
 {
   "name": "@mcclowes/shelf",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "An index of your repositories, so agents get context on other projects without walking the filesystem",
   "keywords": [
     "cli",

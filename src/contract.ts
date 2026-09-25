@@ -7,7 +7,7 @@ const arg = (name: string, description: string, required = false) => ({ name, ty
 const flag = (name: string, description: string) => ({ name, type: 'boolean', description, required: false });
 
 export const contract = {
-  name: 'shelf', version: '0.1.0', description: 'Index your repositories so agents get context on other projects without walking the filesystem.',
+  name: 'shelf', version: '0.1.1', description: 'Index your repositories so agents get context on other projects without walking the filesystem.',
   command_layout: 'flat', output: { tty: 'text', piped: 'json' },
   global_args: [
     { name: '--output', aliases: ['-o'], type: 'string', enum: ['auto', 'json', 'text'], default: 'auto', description: 'Output format.' },

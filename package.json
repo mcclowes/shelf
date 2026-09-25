@@ -1,19 +1,32 @@
 {
   "name": "@mcclowes/shelf",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "An index of your repositories, so agents get context on other projects without walking the filesystem",
-  "keywords": ["cli", "agents", "skills", "repositories", "index", "llm"],
+  "keywords": [
+    "cli",
+    "agents",
+    "skills",
+    "repositories",
+    "index",
+    "llm"
+  ],
   "author": "Max Clayton Clowes (https://mcclowes.com)",
   "type": "module",
-  "bin": { "shelf": "dist/main.js" },
-  "engines": { "node": ">=24" },
+  "bin": {
+    "shelf": "dist/main.js"
+  },
+  "engines": {
+    "node": ">=24"
+  },
   "license": "MIT",
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "test": "node --test src/*.test.ts",
     "lint": "biome lint",
     "check": "tsc --noEmit",
-    "build": "tsc"
+    "build": "tsc && chmod +x dist/main.js"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.14",

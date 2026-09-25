@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-09-25
+
+- Fix the Homebrew install: the release archive's `dist/main.js` is now executable.
+
 ## [0.1.0] - 2026-09-25
 
 - Index local repositories and GitHub owners with a one-line description of each.

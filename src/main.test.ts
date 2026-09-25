@@ -194,3 +194,36 @@ test('schema describes the CLI offline and text output renders for people', t =>
   assert.match(run('list', '--output', 'text').stdout, /delta\t\(no description\)/);
   assert.match(run('show', 'gamma', '--output', 'text').stdout, /description: Gamma package \(manifest\)/);
 });
+
+test('a fork clone whose origin is upstream matches its GitHub repository through another remote', t => {
+  const { root, json } = fixture(t);
+  const fork = repo(root, 'beta');
+  write(join(fork, '.git', 'config'), '[remote "origin"]\n\turl = https://github.com/upstream/beta.git\n[remote "fork"]\n\turl = git@github.com:acme/beta.git\n');
+  json('scan', '--root', root, '--github', 'acme');
+  const matches = json('search', 'beta').items;
+  assert.equal(matches.length, 1);
+  assert.equal(matches[0].path, fork);
+  assert.equal(matches[0].remote, 'github.com/acme/beta');
+  assert.deepEqual(json('show', fork).remotes, ['github.com/upstream/beta', 'github.com/acme/beta']);
+  assert.equal(json('show', 'upstream/beta').id, fork);
+});
+
+test('help for one command describes only that command', t => {
+  const { json, run } = fixture(t);
+  assert.equal(json('search', '--help').command.name, 'search');
+  assert.equal(json('help', 'show').command.name, 'show');
+  const text = run('sync', '--help', '--output', 'text').stdout;
+  assert.match(text, /shelf sync \[--skills-dir <skills-dir>\]/);
+  assert.doesNotMatch(text, /shelf scan/);
+  assert.equal(run('help', 'nope').status, 1);
+});
+
+test('a repository without a README takes its description from AGENTS.md or CLAUDE.md', t => {
+  const { root, json } = fixture(t);
+  repo(root, 'epsilon', { 'CLAUDE.md': '# CLAUDE.md\n\nThis file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.\n\n## Architecture\n\nEpsilon is a map of venues.' });
+  repo(root, 'zeta', { 'CLAUDE.md': '@AGENTS.md\n', 'AGENTS.md': '# Zeta\n\nShared API client for Weavr integrations.' });
+  json('scan', '--root', root);
+  assert.equal(json('show', 'epsilon').description, 'Epsilon is a map of venues.');
+  assert.equal(json('show', 'epsilon').description_source, 'agents');
+  assert.equal(json('show', 'zeta').description, 'Shared API client for Weavr integrations.');
+});

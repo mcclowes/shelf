@@ -7,7 +7,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from '
 import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 
-export type DescriptionSource = 'override' | 'github' | 'manifest' | 'readme';
+export type DescriptionSource = 'override' | 'github' | 'manifest' | 'readme' | 'agents';
 export type Repo = {
   /** Absolute path for a local clone; `host/owner/name` for a GitHub repository with no clone. */
   id: string;
@@ -17,6 +17,8 @@ export type Repo = {
   path?: string;
   /** Normalized `host/owner/name`, shared by a clone and its GitHub entry. */
   remote?: string;
+  /** Every remote of a clone with more than one, origin first. */
+  remotes?: string[];
   branch?: string;
   last_activity?: string;
   language?: string;

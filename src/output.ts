@@ -13,6 +13,7 @@ export const renderVersion = () => `shelf ${contract.version}`;
 
 export function renderText(result: any): string {
   if (result === contract) return renderHelp();
+  if (result.command?.args) return renderCommandHelp(result.command);
   if (Array.isArray(result.items)) return renderItems(result);
   if (typeof result.github_only === 'number') return renderScan(result);
   if ('described' in result) return [result.description ? `Described ${result.described}` : `Cleared override for ${result.described}`, result.next].filter(Boolean).join('\n');
@@ -23,16 +24,27 @@ export function renderText(result: any): string {
   return JSON.stringify(result, null, 2);
 }
 
-function renderHelp(): string {
-  const usage = (arg: { name: string; required: boolean; type: string }) => {
+type HelpArg = { name: string; required: boolean; type: string; description: string };
+type HelpCommand = { name: string; description: string; args: HelpArg[] };
+
+function usage(command: HelpCommand): string {
+  const argUsage = (arg: HelpArg) => {
     const value = arg.name.startsWith('--') ? (arg.type === 'boolean' ? arg.name : `${arg.name} <${arg.name.slice(2)}>`) : `<${arg.name}>`;
     return arg.required ? value : `[${value}]`;
   };
+  return `shelf ${[command.name, ...command.args.map(argUsage)].join(' ')}`;
+}
+
+function renderHelp(): string {
   return [
     `Shelf ${contract.version} — ${contract.description}`, '',
-    ...contract.commands.map(command => `  shelf ${[command.name, ...command.args.map(usage)].join(' ')}\n    ${command.description}`),
+    ...contract.commands.map(command => `  ${usage(command)}\n    ${command.description}`),
     '', 'Options: --output auto|json|text, --limit 100, --help, --version',
   ].join('\n');
+}
+
+function renderCommandHelp(command: HelpCommand): string {
+  return [usage(command), '', command.description, ...(command.args.length ? ['', ...command.args.map(arg => `  ${arg.name}\t${arg.description}`)] : [])].join('\n');
 }
 
 function renderItems(result: any): string {

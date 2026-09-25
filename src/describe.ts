@@ -1,6 +1,6 @@
 /**
  * ---
- * purpose: Derive a repository description offline from its manifests or README, without running anything.
+ * purpose: Derive a repository description offline from its manifests, README, or agent files, without running anything.
  * ---
  */
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
@@ -19,8 +19,16 @@ export function describeLocal(path: string): Described {
   if (manifest) return { description: manifest, description_source: 'manifest' };
   const readme = readmeFile(path);
   const paragraph = readme && firstParagraph(readText(join(path, readme)) ?? '');
-  return paragraph ? { description: paragraph, description_source: 'readme' } : {};
+  if (paragraph) return { description: paragraph, description_source: 'readme' };
+  for (const file of ['AGENTS.md', 'CLAUDE.md']) {
+    const guidance = firstParagraph(readText(join(path, file)) ?? '', isAgentBoilerplate);
+    if (guidance) return { description: guidance, description_source: 'agents' };
+  }
+  return {};
 }
+
+/** Agent files open with imports like `@AGENTS.md` or a stock line about what the file is for. */
+const isAgentBoilerplate = (text: string) => text.startsWith('@') || /^this file (provides|gives|contains) guidance/i.test(text);
 
 export const presentFiles = (path: string, names: string[]) => names.filter(name => existsSync(join(path, name)));
 
@@ -56,7 +64,7 @@ function readText(file: string): string | undefined {
 }
 
 /** The first prose paragraph, skipping front matter, headings, badges, images, HTML, code, and tables. */
-export function firstParagraph(markdown: string): string | undefined {
+export function firstParagraph(markdown: string, skip: (text: string) => boolean = () => false): string | undefined {
   const body = markdown.replace(/\r\n/g, '\n').replace(/^---\n[\s\S]*?\n---\n/, '').replace(/<!--[\s\S]*?-->/g, '');
   let fenced = false;
   for (const block of body.split(/\n\s*\n/)) {
@@ -66,8 +74,8 @@ export function firstParagraph(markdown: string): string | undefined {
     if (fences % 2) fenced = !fenced;
     if (wasFenced || fences || !lines[0]) continue;
     if (/^(#|<|!\[|\[!\[|\||>|-{3,}|={3,}|\s*[-*+] |\d+\. )/.test(lines[0]) || /^[=-]+$/.test(lines[1] ?? '')) continue;
-    const text = clean(lines.join(' ').replace(/!\[[^\]]*\]\([^)]*\)/g, '').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1'));
-    if (text && /[a-z]/i.test(text)) return text;
+    const text = clean(lines.join(' ').replace(/!\[[^\]]*\]\([^)]*\)/g, '').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/(?<=[.!?])\s+[^.!?]*:\s*$/, ''));
+    if (text && /[a-z]/i.test(text) && !skip(text)) return text;
   }
   return undefined;
 }

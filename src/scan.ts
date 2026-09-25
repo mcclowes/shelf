@@ -40,17 +40,18 @@ export function findRepositories(roots: string[], depth = defaultDepth): { paths
 
 export function readLocalRepo(path: string): Repo {
   const git = join(path, '.git');
+  const remotes = readRemotes(join(git, 'config'));
   return {
     id: path, name: basename(path), path, ...describeLocal(path),
-    remote: readRemote(join(git, 'config')), branch: readBranch(join(git, 'HEAD')), last_activity: lastActivity(git),
+    remote: remotes[0], ...(remotes.length > 1 ? { remotes } : {}), branch: readBranch(join(git, 'HEAD')), last_activity: lastActivity(git),
     agent_files: presentFiles(path, agentFileNames), manifests: presentFiles(path, manifestNames),
   };
 }
 
-/** Prefer origin; otherwise the first remote with a URL. */
-function readRemote(configFile: string): string | undefined {
+/** Every remote with a URL, normalized and deduplicated, origin first. */
+function readRemotes(configFile: string): string[] {
   const text = readOptional(configFile);
-  if (!text) return undefined;
+  if (!text) return [];
   const remotes = new Map<string, string>();
   let current: string | undefined;
   for (const line of text.split('\n')) {
@@ -62,8 +63,9 @@ function readRemote(configFile: string): string | undefined {
       if (url) remotes.set(current, url[1]);
     }
   }
-  const url = remotes.get('origin') ?? remotes.values().next().value;
-  return url ? normalizeRemote(url) : undefined;
+  const origin = remotes.get('origin');
+  const urls = origin ? [origin, ...remotes.values()] : [...remotes.values()];
+  return [...new Set(urls.map(normalizeRemote).filter(remote => remote !== undefined))];
 }
 
 /** `git@github.com:acme/app.git`, `https://github.com/acme/app`, and `ssh://git@github.com/acme/app.git` all become `github.com/acme/app`. */

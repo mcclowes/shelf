@@ -56,8 +56,8 @@ A relation shows on both repositories: as outgoing on the one that declares it a
 ## How the index is built
 
 - **Local repositories.** Shelf walks each root up to `--depth` levels (4 by default). It stops at any directory with a `.git` directory and skips dot directories, `node_modules`, and build output. It also stops after 50,000 directories. Worktrees and submodules are skipped.
-- **GitHub repositories.** `gh repo list <owner>` fetches up to 1,000 repositories per owner. A local clone is matched to its GitHub repository by the origin remote, so each repository appears once.
-- **Descriptions.** In order of precedence: your `shelf describe` override, the GitHub description, the `package.json`, `Cargo.toml`, or `pyproject.toml` description, then the README's first prose paragraph. Descriptions are cleaned and capped at 280 characters. Overrides are keyed by remote, so they survive moves and rescans.
+- **GitHub repositories.** `gh repo list <owner>` fetches up to 1,000 repositories per owner. A local clone is matched to its GitHub repository by its remotes, origin first, so each repository appears once. A fork whose origin is upstream still matches through its other remote.
+- **Descriptions.** In order of precedence: your `shelf describe` override, the GitHub description, the `package.json`, `Cargo.toml`, or `pyproject.toml` description, then the README's first prose paragraph, then the first prose paragraph of `AGENTS.md` or `CLAUDE.md`. Descriptions are cleaned and capped at 280 characters. Overrides are keyed by remote, so they survive moves and rescans.
 
 The configuration and the index live in `~/.config/shelf`. Set `SHELF_HOME` to use another location.
 

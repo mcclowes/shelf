@@ -109,8 +109,14 @@ function related({ args: [ref], limit }: Invocation) {
   return { ...page(relatedTo(index.repos, readConfig().relations, repo), limit), scanned_at: index.scanned_at };
 }
 
+function commandHelp(name: string) {
+  const command = contract.commands.find(entry => entry.name === name);
+  if (!command) throw new Error(`Unknown command: ${name}. Run shelf --help.`);
+  return { name: contract.name, version: contract.version, command };
+}
+
 const commands: Record<string, Command> = {
-  help: { minArgs: 0, maxArgs: 0, run: () => contract },
+  help: { minArgs: 0, maxArgs: 1, run: ({ args: [name] }) => name ? commandHelp(name) : contract },
   schema: { minArgs: 0, maxArgs: 0, run: () => contract },
   capabilities: { minArgs: 0, maxArgs: 0, run: () => contract },
   scan: { minArgs: 0, maxArgs: 0, run: scan },

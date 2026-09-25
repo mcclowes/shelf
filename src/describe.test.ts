@@ -19,6 +19,7 @@ test('first paragraph skips headings, badges, front matter, code, and lists', ()
 test('first paragraph skips setext headings and returns undefined without prose', () => {
   assert.equal(firstParagraph('Title\n=====\n\nBody text.'), 'Body text.');
   assert.equal(firstParagraph('# Only a heading\n\n![logo](x.png)'), undefined);
+  assert.equal(firstParagraph('A map of venues. It has three parts:\n\n1. One'), 'A map of venues.');
 });
 
 test('clean strips control characters and caps length at a word boundary', () => {
@@ -45,4 +46,16 @@ test('search requires every word and ranks name hits first', () => {
   assert.deepEqual(searchRepos(repos, 'billing').map(repo => repo.id), ['2', '1']);
   assert.deepEqual(searchRepos(repos, 'billing docs').map(repo => repo.id), ['1']);
   assert.throws(() => searchRepos(repos, '  '), /query/);
+});
+
+test('search matches plurals and simple variants in either direction', () => {
+  const repos = [
+    { id: '1', name: 'clipped', description: 'A clipboard manager' },
+    { id: '2', name: 'libs', description: 'Shared libraries for testing' },
+  ];
+  assert.deepEqual(searchRepos(repos, 'clipboards').map(repo => repo.id), ['1']);
+  assert.deepEqual(searchRepos(repos, 'library').map(repo => repo.id), ['2']);
+  assert.deepEqual(searchRepos(repos, 'tests').map(repo => repo.id), ['2']);
+  assert.deepEqual(searchRepos(repos, 'managers').map(repo => repo.id), ['1']);
+  assert.deepEqual(searchRepos(repos, 'class').map(repo => repo.id), []);
 });

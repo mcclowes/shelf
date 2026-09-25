@@ -6,15 +6,18 @@
 import { resolve } from 'node:path';
 import { overrideKey, type Repo } from './store.ts';
 
-/** A clone takes GitHub's description, language, and topics; GitHub repositories without a clone keep their own entry. */
+/**
+ * A clone takes GitHub's description, language, and topics; GitHub repositories without a clone keep their own entry.
+ * A fork's origin is often upstream, so any remote can match, and the matched one becomes the clone's remote.
+ */
 export function mergeRepos(local: Repo[], remote: Repo[], overrides: Record<string, string>): Repo[] {
   const byRemote = new Map(remote.map(repo => [repo.remote, repo]));
   const cloned = new Set<string>();
   const merged = local.map(repo => {
-    const github = repo.remote ? byRemote.get(repo.remote) : undefined;
+    const github = (repo.remotes ?? [repo.remote]).map(remote => remote && byRemote.get(remote)).find(Boolean);
     if (!github) return repo;
     cloned.add(github.id);
-    const { id: _id, name: _name, remote: _remote, description, description_source, ...rest } = github;
+    const { id: _id, name: _name, description, description_source, ...rest } = github;
     return { ...repo, ...rest, ...(description ? { description, description_source } : {}) };
   });
   return [...merged, ...remote.filter(repo => !cloned.has(repo.id))].map(repo => applyOverride(repo, overrides)).sort(byName);
@@ -32,10 +35,8 @@ export function findRepos(repos: Repo[], ref: string): Repo[] {
   const exact = repos.filter(repo => repo.id === ref || (repo.path && repo.path === resolve(ref)));
   if (exact.length) return exact;
   const lower = ref.toLowerCase().replace(/\.git$/, '');
-  return repos.filter(repo => {
-    const remote = repo.remote?.toLowerCase();
-    return repo.name.toLowerCase() === lower || remote === lower || (remote && remote.slice(remote.indexOf('/') + 1) === lower);
-  });
+  const matchesRemote = (remote: string) => remote === lower || remote.slice(remote.indexOf('/') + 1) === lower;
+  return repos.filter(repo => repo.name.toLowerCase() === lower || [repo.remote, ...(repo.remotes ?? [])].some(remote => remote && matchesRemote(remote.toLowerCase())));
 }
 
 export function findRepo(repos: Repo[], ref: string): Repo {
@@ -57,13 +58,26 @@ function score(repo: Repo, words: string[]): number {
   const name = repo.name.toLowerCase();
   const tags = [...(repo.topics ?? []), repo.language ?? ''].map(tag => tag.toLowerCase());
   const text = `${repo.description ?? ''} ${repo.remote ?? ''} ${repo.path ?? ''}`.toLowerCase();
+  const stems = new Set([name, ...tags, text].flatMap(field => field.split(/[^a-z0-9]+/)).map(stem));
   let total = 0;
   for (const word of words) {
-    const hit = (name === word ? 100 : name.includes(word) ? 50 : 0) + (tags.includes(word) ? 30 : 0) + (text.includes(word) ? 10 : 0);
+    const root = stem(word);
+    const inText = text.includes(word) || text.includes(root) || stems.has(root);
+    const hit = (name === word ? 100 : name.includes(word) || name.includes(root) ? 50 : 0) + (tags.includes(word) || tags.includes(root) ? 30 : 0) + (inText ? 10 : 0);
     if (!hit) return 0;
     total += hit;
   }
   return total;
+}
+
+/** Strips common English suffixes so plurals and -ing forms match their root; enough for repository descriptions. */
+export function stem(word: string): string {
+  if (word.length <= 3) return word;
+  if (word.endsWith('ies') && word.length > 4) return `${word.slice(0, -3)}y`;
+  if (word.endsWith('ing') && word.length > 5) return word.slice(0, -3).replace(/([^aeiou])\1$/, '$1');
+  if (/(s|x|z|ch|sh)es$/.test(word)) return word.slice(0, -2);
+  if (word.endsWith('s') && !/(ss|us|is)$/.test(word)) return word.slice(0, -1);
+  return word;
 }
 
 /** List and search show enough to choose a repository; show returns the rest. */

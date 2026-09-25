@@ -7,3 +7,4 @@ dist/
 .saggar/**/*.local.*
 .saggar/scratchpad.md
 .saggar/jobs/
+release/

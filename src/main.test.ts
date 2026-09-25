@@ -26,7 +26,7 @@ function repo(root: string, name: string, files: Record<string, string> = {}, re
 }
 
 function fixture(t: any) {
-  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'atlas-test-')));
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'shelf-test-')));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const root = join(dir, 'code');
   const paths = {
@@ -41,7 +41,7 @@ function fixture(t: any) {
   write(join(dir, 'bin', 'gh'), `#!/bin/sh\ncat "${join(dir, 'gh.json')}"\n`);
   chmodSync(join(dir, 'bin', 'gh'), 0o755);
   const run = (...args: string[]) => spawnSync(process.execPath, [main.pathname, ...args], {
-    cwd: dir, encoding: 'utf8', env: { ...process.env, ATLAS_HOME: join(dir, 'config'), PATH: `${join(dir, 'bin')}:${process.env.PATH}` },
+    cwd: dir, encoding: 'utf8', env: { ...process.env, SHELF_HOME: join(dir, 'config'), PATH: `${join(dir, 'bin')}:${process.env.PATH}` },
   });
   const json = (...args: string[]) => {
     const result = run(...args);
@@ -121,7 +121,7 @@ test('ambiguous and unknown references fail with structured errors', t => {
   assert.equal(JSON.parse(run('show', 'missing').stderr).error.kind, 'invalid_request');
   assert.equal(run('scan', '--github', '--bad').status, 1);
   rmSync(join(dir, 'config'), { recursive: true });
-  assert.match(JSON.parse(run('list').stderr).error.message, /atlas scan/);
+  assert.match(JSON.parse(run('list').stderr).error.message, /shelf scan/);
 });
 
 test('sync writes the skill once and refuses a directory it does not own', t => {
@@ -129,20 +129,20 @@ test('sync writes the skill once and refuses a directory it does not own', t => 
   const skills = join(dir, 'skills');
   const first = json('sync', '--skills-dir', skills);
   assert.equal(first.changed, true);
-  assert.match(readFileSync(first.file, 'utf8'), /^---\nname: atlas\n/);
+  assert.match(readFileSync(first.file, 'utf8'), /^---\nname: shelf\n/);
   assert.equal(json('sync', '--skills-dir', skills).changed, false);
 
   const other = join(dir, 'other-skills');
-  write(join(other, 'atlas', 'SKILL.md'), 'mine');
+  write(join(other, 'shelf', 'SKILL.md'), 'mine');
   assert.equal(run('sync', '--skills-dir', other).status, 1);
-  assert.equal(readFileSync(join(other, 'atlas', 'SKILL.md'), 'utf8'), 'mine');
-  assert.ok(!existsSync(join(other, 'atlas', '.atlas-owned')));
+  assert.equal(readFileSync(join(other, 'shelf', 'SKILL.md'), 'utf8'), 'mine');
+  assert.ok(!existsSync(join(other, 'shelf', '.shelf-owned')));
 });
 
 test('schema describes the CLI offline and text output renders for people', t => {
   const { root, json, run } = fixture(t);
-  assert.equal(json('schema').name, 'atlas');
-  assert.match(run('--help', '--output', 'text').stdout, /atlas scan/);
+  assert.equal(json('schema').name, 'shelf');
+  assert.match(run('--help', '--output', 'text').stdout, /shelf scan/);
   json('scan', '--root', root);
   assert.match(run('list', '--output', 'text').stdout, /delta\t\(no description\)/);
   assert.match(run('show', 'gamma', '--output', 'text').stdout, /description: Gamma package \(manifest\)/);

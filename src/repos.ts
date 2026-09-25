@@ -40,7 +40,7 @@ export function findRepos(repos: Repo[], ref: string): Repo[] {
 
 export function findRepo(repos: Repo[], ref: string): Repo {
   const matches = findRepos(repos, ref);
-  if (!matches.length) throw new Error(`No repository matches ${ref}. Try atlas search ${ref}, or rescan with atlas scan.`);
+  if (!matches.length) throw new Error(`No repository matches ${ref}. Try shelf search ${ref}, or rescan with shelf scan.`);
   if (matches.length > 1) throw new Error(`${ref} matches ${matches.length} repositories; use one of these ids: ${matches.map(repo => repo.id).join(', ')}`);
   return matches[0];
 }

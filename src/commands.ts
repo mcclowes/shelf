@@ -1,6 +1,6 @@
 /**
  * ---
- * purpose: Implement each Atlas command as a handler keyed by its contract name.
+ * purpose: Implement each Shelf command as a handler keyed by its contract name.
  * related:
  *   - ./contract.ts - Public command names and arguments these handlers implement.
  *   - ./main.ts - Parses arguments, dispatches here, and prints results.
@@ -73,7 +73,7 @@ function describe({ args: [ref, text], options }: Invocation) {
     return entry.description_source === 'override' ? rest : entry;
   });
   writeIndex({ ...index, repos });
-  return { described: repo.id, description: description ?? null, ...(description ? {} : { next: 'Run atlas scan to restore the scanned description.' }) };
+  return { described: repo.id, description: description ?? null, ...(description ? {} : { next: 'Run shelf scan to restore the scanned description.' }) };
 }
 
 const commands: Record<string, Command> = {
@@ -100,7 +100,7 @@ const commands: Record<string, Command> = {
 export function resolveCommand(positionals: string[]): { command: Command; args: string[] } {
   const [name = 'help', ...args] = positionals;
   const command = commands[name];
-  if (!command) throw new Error(`Unknown command: ${name}. Run atlas --help.`);
-  if (args.length < command.minArgs || args.length > command.maxArgs) throw new Error(`Wrong number of arguments for ${name}. Run atlas --help.`);
+  if (!command) throw new Error(`Unknown command: ${name}. Run shelf --help.`);
+  if (args.length < command.minArgs || args.length > command.maxArgs) throw new Error(`Wrong number of arguments for ${name}. Run shelf --help.`);
   return { command, args };
 }

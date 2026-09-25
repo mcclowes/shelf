@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * ---
- * purpose: Parse Atlas arguments, dispatch to a command handler, and print the result for people or agents.
+ * purpose: Parse Shelf arguments, dispatch to a command handler, and print the result for people or agents.
  * related:
  *   - ./commands.ts - Command handlers keyed by contract name.
  * ---
@@ -17,7 +17,7 @@ type Format = (typeof outputFormats)[number];
 
 try {
   const { positionals, options, format, limit } = parseCli();
-  if (options.version) print({ name: 'atlas', version: contract.version }, format, renderVersion);
+  if (options.version) print({ name: 'shelf', version: contract.version }, format, renderVersion);
   else {
     const { command, args } = resolveCommand(options.help ? ['help'] : positionals);
     print(await command.run({ args, options: options as Options, limit }), format);

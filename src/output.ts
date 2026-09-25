@@ -9,7 +9,7 @@ export function page<T>(items: T[], limit: number) {
   return { items: items.slice(0, limit), total: items.length, truncated: items.length > limit };
 }
 
-export const renderVersion = () => `atlas ${contract.version}`;
+export const renderVersion = () => `shelf ${contract.version}`;
 
 export function renderText(result: any): string {
   if (result === contract) return renderHelp();
@@ -27,8 +27,8 @@ function renderHelp(): string {
     return arg.required ? value : `[${value}]`;
   };
   return [
-    `Atlas ${contract.version} — ${contract.description}`, '',
-    ...contract.commands.map(command => `  atlas ${[command.name, ...command.args.map(usage)].join(' ')}\n    ${command.description}`),
+    `Shelf ${contract.version} — ${contract.description}`, '',
+    ...contract.commands.map(command => `  shelf ${[command.name, ...command.args.map(usage)].join(' ')}\n    ${command.description}`),
     '', 'Options: --output auto|json|text, --limit 100, --help, --version',
   ].join('\n');
 }

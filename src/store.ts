@@ -1,6 +1,6 @@
 /**
  * ---
- * purpose: Persist Atlas configuration (roots, GitHub owners, description overrides) and the derived repository index.
+ * purpose: Persist Shelf configuration (roots, GitHub owners, description overrides) and the derived repository index.
  * ---
  */
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
@@ -28,9 +28,9 @@ export type Repo = {
 export type Config = { version: 1; roots: string[]; github: string[]; overrides: Record<string, string> };
 export type Index = { version: 1; scanned_at: string; roots: string[]; github: string[]; truncated: boolean; repos: Repo[] };
 
-export const atlasHome = () => process.env.ATLAS_HOME ?? join(homedir(), '.config', 'atlas');
-const configPath = () => join(atlasHome(), 'config.json');
-const indexPath = () => join(atlasHome(), 'index.json');
+export const shelfHome = () => process.env.SHELF_HOME ?? join(homedir(), '.config', 'shelf');
+const configPath = () => join(shelfHome(), 'config.json');
+const indexPath = () => join(shelfHome(), 'index.json');
 
 /** Overrides follow the remote, so a description survives moving or re-cloning a repository. */
 export const overrideKey = (repo: Repo) => repo.remote ?? repo.id;
@@ -39,7 +39,7 @@ export function readConfig(): Config {
   const path = configPath();
   if (!existsSync(path)) return { version: 1, roots: [], github: [], overrides: {} };
   const data = JSON.parse(readFileSync(path, 'utf8'));
-  if (data.version !== 1) throw new Error(`Unsupported Atlas configuration at ${path}.`);
+  if (data.version !== 1) throw new Error(`Unsupported Shelf configuration at ${path}.`);
   return { version: 1, roots: data.roots ?? [], github: data.github ?? [], overrides: data.overrides ?? {} };
 }
 
@@ -47,9 +47,9 @@ export const writeConfig = (config: Config) => writeJson(configPath(), config);
 
 export function readIndex(): Index {
   const path = indexPath();
-  if (!existsSync(path)) throw new Error('No index yet. Run atlas scan first.');
+  if (!existsSync(path)) throw new Error('No index yet. Run shelf scan first.');
   const data = JSON.parse(readFileSync(path, 'utf8'));
-  if (data.version !== 1 || !Array.isArray(data.repos)) throw new Error(`Unsupported or invalid Atlas index at ${path}; run atlas scan.`);
+  if (data.version !== 1 || !Array.isArray(data.repos)) throw new Error(`Unsupported or invalid Shelf index at ${path}; run shelf scan.`);
   return data;
 }
 

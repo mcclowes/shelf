@@ -1,31 +1,27 @@
 /**
  * ---
- * purpose: Shape command results for agents (paged JSON) and people (text).
+ * purpose: Shape command results for agents (paged JSON) and render each kind of result as text for people.
+ * related:
+ *   - ./commands.ts - Pairs each command with the renderer for its result.
  * ---
  */
 import { contract } from './contract.ts';
+import type { RelatedItem } from './relations.ts';
+import type { summary } from './repos.ts';
+import type { Repo } from './store.ts';
 
-export function page<T>(items: T[], limit: number) {
+type Paged<T> = { items: T[]; total: number; truncated: boolean };
+type ListItem = ReturnType<typeof summary>;
+type ShownRepo = Omit<Repo, 'related'> & { related: RelatedItem[] };
+type ScanSummary = { total: number; local: number; github_only: number; undescribed: number; roots: string[]; github: string[]; truncated: boolean; warnings?: string[] };
+type HelpArg = { name: string; required: boolean; type: string; description: string };
+type HelpCommand = { name: string; description: string; args: HelpArg[] };
+
+export function page<T>(items: T[], limit: number): Paged<T> {
   return { items: items.slice(0, limit), total: items.length, truncated: items.length > limit };
 }
 
 export const renderVersion = () => `shelf ${contract.version}`;
-
-export function renderText(result: any): string {
-  if (result === contract) return renderHelp();
-  if (result.command?.args) return renderCommandHelp(result.command);
-  if (Array.isArray(result.items)) return renderItems(result);
-  if (typeof result.github_only === 'number') return renderScan(result);
-  if ('described' in result) return [result.description ? `Described ${result.described}` : `Cleared override for ${result.described}`, result.next].filter(Boolean).join('\n');
-  if (typeof result.cleared === 'string') return `Removed local relation from ${result.cleared} to ${result.to}`;
-  if (typeof result.related === 'string') return `Related ${result.related} to ${result.to}`;
-  if (typeof result.file === 'string') return `${result.changed ? 'Wrote' : 'Unchanged'} ${result.file}`;
-  if (typeof result.id === 'string') return renderRepo(result);
-  return JSON.stringify(result, null, 2);
-}
-
-type HelpArg = { name: string; required: boolean; type: string; description: string };
-type HelpCommand = { name: string; description: string; args: HelpArg[] };
 
 function usage(command: HelpCommand): string {
   const argUsage = (arg: HelpArg) => {
@@ -35,7 +31,7 @@ function usage(command: HelpCommand): string {
   return `shelf ${[command.name, ...command.args.map(argUsage)].join(' ')}`;
 }
 
-function renderHelp(): string {
+export function renderHelp(): string {
   return [
     `Shelf ${contract.version} — ${contract.description}`, '',
     ...contract.commands.map(command => `  ${usage(command)}\n    ${command.description}`),
@@ -43,12 +39,12 @@ function renderHelp(): string {
   ].join('\n');
 }
 
-function renderCommandHelp(command: HelpCommand): string {
+export function renderCommandHelp({ command }: { command: HelpCommand }): string {
   return [usage(command), '', command.description, ...(command.args.length ? ['', ...command.args.map(arg => `  ${arg.name}\t${arg.description}`)] : [])].join('\n');
 }
 
-function renderItems(result: any): string {
-  const lines = result.items.map((item: any) => item.direction ? relatedLine(item) : `${item.name}\t${item.description ?? '(no description)'}\t${item.path ?? item.remote ?? ''}`);
+export function renderItems(result: Paged<ListItem | RelatedItem>): string {
+  const lines = result.items.map(item => 'direction' in item ? relatedLine(item) : `${item.name}\t${item.description ?? '(no description)'}\t${item.path ?? item.remote ?? ''}`);
   if (!lines.length) lines.push('No results.');
   if (result.truncated) lines.push(`Showing ${result.items.length} of ${result.total}; increase --limit for more.`);
   return lines.join('\n');
@@ -56,22 +52,32 @@ function renderItems(result: any): string {
 
 const arrows = { outgoing: '→', incoming: '←' } as const;
 
-function relatedLine(item: any): string {
+function relatedLine(item: RelatedItem): string {
   const target = item.name ?? `${item.ref} (not indexed)`;
-  return `${arrows[item.direction as keyof typeof arrows]} ${target}\t${item.relation ?? '(no relation given)'}\t${item.source}\t${item.path ?? item.remote ?? ''}`;
+  return `${arrows[item.direction]} ${target}\t${item.relation ?? '(no relation given)'}\t${item.source}\t${item.path ?? item.remote ?? ''}`;
 }
 
-function renderScan(result: any): string {
+export function renderScan(result: ScanSummary): string {
   return [
     `Indexed ${result.total} repositories: ${result.local} local, ${result.github_only} on GitHub only, ${result.undescribed} undescribed.`,
     `Roots: ${result.roots.join(', ')}`,
     ...(result.github.length ? [`GitHub: ${result.github.join(', ')}`] : []),
     ...(result.truncated ? ['Stopped early at the directory limit; narrow --root or lower --depth.'] : []),
-    ...(result.warnings ?? []).map((warning: string) => `Warning: ${warning}`),
+    ...(result.warnings ?? []).map(warning => `Warning: ${warning}`),
   ].join('\n');
 }
 
-function renderRepo(repo: any): string {
+export function renderDescribed(result: { described: string; description: string | null; next?: string }): string {
+  return [result.description ? `Described ${result.described}` : `Cleared override for ${result.described}`, result.next].filter(Boolean).join('\n');
+}
+
+export function renderRelation(result: { cleared: string; to: string } | { related: string; to: string }): string {
+  return 'cleared' in result ? `Removed local relation from ${result.cleared} to ${result.to}` : `Related ${result.related} to ${result.to}`;
+}
+
+export const renderSync = (result: { file: string; changed: boolean }) => `${result.changed ? 'Wrote' : 'Unchanged'} ${result.file}`;
+
+export function renderRepo(repo: ShownRepo): string {
   const rows: [string, unknown][] = [
     ['description', repo.description && `${repo.description} (${repo.description_source})`],
     ['path', repo.path], ['remote', repo.remote], ['branch', repo.branch], ['language', repo.language],
@@ -79,6 +85,6 @@ function renderRepo(repo: any): string {
     ['last activity', repo.last_activity ?? repo.github?.pushed_at],
     ['github', repo.github && [repo.github.url, repo.github.private && 'private', repo.github.archived && 'archived', repo.github.fork && 'fork'].filter(Boolean).join(' ')],
   ];
-  const related = (repo.related ?? []).map((item: any) => `    ${relatedLine(item)}`);
+  const related = repo.related.map(item => `    ${relatedLine(item)}`);
   return [repo.name, ...rows.filter(([, value]) => value).map(([key, value]) => `  ${key}: ${value}`), ...(related.length ? ['  related:', ...related] : [])].join('\n');
 }

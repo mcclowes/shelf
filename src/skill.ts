@@ -56,13 +56,16 @@ shelf describe <id> "Next.js marketing site for Kiln, deployed on Vercel"
 Don't guess at a repository you couldn't read. Overrides survive rescans; \`shelf describe <id> --clear\` removes one.
 `;
 
+/** Shelf only overwrites a real directory carrying its own marker; anything else belongs to the user. */
+function ownedByShelf(dir: string, markerFile: string): boolean {
+  return !lstatSync(dir).isSymbolicLink() && existsSync(markerFile) && readFileSync(markerFile, 'utf8') === markerText;
+}
+
 export function syncSkill(directory: string): { file: string; changed: boolean } {
   const dir = join(resolve(directory), skillName);
   const file = join(dir, 'SKILL.md');
   const markerFile = join(dir, marker);
-  if (existsSync(dir) && (lstatSync(dir).isSymbolicLink() || !existsSync(markerFile) || readFileSync(markerFile, 'utf8') !== markerText)) {
-    throw new Error(`${dir} exists and was not written by Shelf. Move it, or pass --skills-dir.`);
-  }
+  if (existsSync(dir) && !ownedByShelf(dir, markerFile)) throw new Error(`${dir} exists and was not written by Shelf. Move it, or pass --skills-dir.`);
   if (existsSync(file) && readFileSync(file, 'utf8') === skillText) return { file, changed: false };
   mkdirSync(dir, { recursive: true });
   writeFileSync(file, skillText);

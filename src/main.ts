@@ -3,13 +3,13 @@
  * ---
  * purpose: Parse Shelf arguments, dispatch to a command handler, and print the result for people or agents.
  * related:
- *   - ./commands.ts - Command handlers keyed by contract name.
+ *   - ./commands.ts - Command handlers keyed by contract name, each with its text renderer.
  * ---
  */
 import { parseArgs } from 'node:util';
 import { contract } from './contract.ts';
-import { renderText, renderVersion } from './output.ts';
-import { resolveCommand, type Options } from './commands.ts';
+import { renderVersion } from './output.ts';
+import { commandOptions, resolveCommand } from './commands.ts';
 
 const outputFormats = ['auto', 'json', 'text'] as const;
 const maxLimit = 10000;
@@ -20,7 +20,7 @@ try {
   if (options.version) print({ name: 'shelf', version: contract.version }, format, renderVersion);
   else {
     const { command, args } = resolveCommand(options.help ? ['help', ...positionals.slice(0, 1)] : positionals);
-    print(await command.run({ args, options: options as Options, limit }), format);
+    print(await command.run({ args, options, limit }), format, command.text);
   }
 } catch (error) {
   process.stderr.write(`${JSON.stringify({ error: { kind: 'invalid_request', message: error instanceof Error ? error.message : String(error) } })}\n`);
@@ -29,8 +29,7 @@ try {
 
 function parseCli() {
   const { positionals, values: options } = parseArgs({ allowPositionals: true, options: {
-    root: { type: 'string', multiple: true }, github: { type: 'string', multiple: true }, 'no-github': { type: 'boolean' },
-    depth: { type: 'string' }, undescribed: { type: 'boolean' }, clear: { type: 'boolean' }, 'skills-dir': { type: 'string' },
+    ...commandOptions,
     limit: { type: 'string', default: '100' }, version: { type: 'boolean' },
     output: { type: 'string', short: 'o', default: 'auto' }, help: { type: 'boolean', short: 'h' },
   } });
@@ -41,7 +40,7 @@ function parseCli() {
 }
 
 /** Piped output defaults to JSON so agents parse it; a terminal gets text. */
-function print(result: unknown, format: Format, text: (result: unknown) => string = renderText): void {
+function print(result: unknown, format: Format, text: (result: unknown) => string): void {
   const json = format === 'json' || (format === 'auto' && !process.stdout.isTTY);
   process.stdout.write(`${json ? JSON.stringify(result) : text(result)}\n`);
 }

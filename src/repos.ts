@@ -6,10 +6,7 @@
 import { resolve } from 'node:path';
 import { overrideKey, type Repo } from './store.ts';
 
-/**
- * A clone takes GitHub's description, language, and topics; GitHub repositories without a clone keep their own entry.
- * A fork's origin is often upstream, so any remote can match, and the matched one becomes the clone's remote.
- */
+/** A fork's origin is often upstream, so any remote can match; the matched one becomes the clone's remote. */
 export function mergeRepos(local: Repo[], remote: Repo[], overrides: Record<string, string>): Repo[] {
   const byRemote = new Map(remote.map(repo => [repo.remote, repo]));
   const cloned = new Set<string>();

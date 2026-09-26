@@ -72,7 +72,6 @@ function describe({ args: [ref, text], options }: Invocation) {
   if (description) overrides[key] = description;
   else delete overrides[key];
   writeConfig({ ...config, overrides });
-  // Clearing an override can't recover the scanned description, so a cleared entry waits for the next scan.
   const repos = index.repos.map(entry => {
     if (overrideKey(entry) !== key) return entry;
     if (description) return applyOverride(entry, overrides);

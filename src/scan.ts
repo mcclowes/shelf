@@ -48,7 +48,6 @@ export function readLocalRepo(path: string): Repo {
   };
 }
 
-/** Every remote with a URL, normalized and deduplicated, origin first. */
 function readRemotes(configFile: string): string[] {
   const text = readOptional(configFile);
   if (!text) return [];

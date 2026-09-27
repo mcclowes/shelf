@@ -65,7 +65,24 @@ function edges(repos: Repo[], local: LocalRelation[]): Edge[] {
   const byKey = (key: string) => repos.filter(repo => overrideKey(repo) === key);
   const declared = repos.flatMap(from => (from.related ?? []).map(({ ref, relation }) => ({ from, ref, targets: resolveRef(repos, from, ref), relation, source: 'repo' as const })));
   const mine = local.flatMap(({ from, to, relation }) => byKey(from).map(repo => ({ from: repo, ref: to, targets: byKey(to), relation, source: 'local' as const })));
-  return [...mine, ...declared];
+  const localPairs = new Set(local.map(({ from, to }) => `${from}\0${to}`));
+  const effectiveDeclared = declared.flatMap(edge => {
+    const targets = edge.targets.filter(target => !localPairs.has(`${overrideKey(edge.from)}\0${overrideKey(target)}`));
+    return targets.length || !edge.targets.length ? [{ ...edge, targets }] : [];
+  });
+  return [...mine, ...effectiveDeclared];
+}
+
+/** Relation explanations are searchable data on each resolved endpoint, or only the declaring repository when unresolved. */
+export function searchableRelationText(repos: Repo[], local: LocalRelation[]): Map<string, string[]> {
+  const text = new Map<string, string[]>();
+  const add = (repo: Repo, relation: string) => text.set(repo.id, [...(text.get(repo.id) ?? []), relation]);
+  for (const edge of edges(repos, local)) {
+    if (!edge.relation) continue;
+    add(edge.from, edge.relation);
+    for (const target of edge.targets) add(target, edge.relation);
+  }
+  return text;
 }
 
 /** A local relation replaces a repo-file relation between the same two repositories in the same direction. */

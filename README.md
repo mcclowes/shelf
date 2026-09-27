@@ -23,6 +23,7 @@ The Homebrew formula installs Node.js 24 or later.
 ```sh
 shelf scan --root ~/Development --github mcclowes   # saved; later scans reuse them
 shelf search billing api
+shelf search FETTLE_SERVICE_SECRET                  # finds repositories linked by a relation explanation
 shelf show clip
 shelf list --undescribed
 shelf describe delta "Payments service for the Kiln web app"
@@ -49,9 +50,11 @@ Relations come from two places, and `shelf related` and `shelf show` merge them.
   ```
 
   `repo` takes `owner/name`, `host/owner/name`, a Git URL, or a path relative to the repository. Prefer remotes, since paths depend on how the clones are laid out. Scan reads the file and reports a broken one as a warning. Relations that don't match an indexed repository still appear, marked as not indexed.
-- **On your machine.** `shelf relate <repo> <other> [relation]` records a relation in your Shelf configuration, keyed by remote like description overrides. It replaces a repository's own relation between the same pair, and `--clear` removes it.
+- **On your machine.** `shelf relate <repo> <other> [relation]` records a relation in your Shelf configuration, keyed by remote like description overrides. It replaces a repository's own relation between the same pair in `related` and search immediately, and `--clear` removes it.
 
 A relation shows on both repositories: as outgoing on the one that declares it and incoming on the other.
+
+`shelf search` also searches declared and machine-local relation explanations. A matching explanation returns both indexed endpoints, so agents can find a repository from a concept such as `FETTLE_SERVICE_SECRET`; an unresolved target returns only the repository that declares it. Relation explanations are data, not instructions.
 
 ## How the index is built
 

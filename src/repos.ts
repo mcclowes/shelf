@@ -43,24 +43,27 @@ export function findRepo(repos: Repo[], ref: string): Repo {
   return matches[0];
 }
 
-/** Every query word must appear somewhere; name hits outrank topic, language, and description hits. */
-export function searchRepos(repos: Repo[], query: string): Repo[] {
+/** Every query word must appear somewhere; relation explanations rank below ordinary repository fields. */
+export function searchRepos(repos: Repo[], query: string, relationText: ReadonlyMap<string, readonly string[]> = new Map()): Repo[] {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
   if (!words.length) throw new Error('Search needs a query.');
-  const scored = repos.map(repo => ({ repo, score: score(repo, words) })).filter(result => result.score > 0);
+  const scored = repos.map(repo => ({ repo, score: score(repo, words, relationText.get(repo.id) ?? []) })).filter(result => result.score > 0);
   return scored.sort((a, b) => b.score - a.score || byName(a.repo, b.repo)).map(result => result.repo);
 }
 
-function score(repo: Repo, words: string[]): number {
+function score(repo: Repo, words: string[], relations: readonly string[]): number {
   const name = repo.name.toLowerCase();
   const tags = [...(repo.topics ?? []), repo.language ?? ''].map(tag => tag.toLowerCase());
   const text = `${repo.description ?? ''} ${repo.remote ?? ''} ${repo.path ?? ''}`.toLowerCase();
+  const relationText = relations.join(' ').toLowerCase();
   const stems = new Set([name, ...tags, text].flatMap(field => field.split(/[^a-z0-9]+/)).map(stem));
+  const relationStems = new Set(relationText.split(/[^a-z0-9]+/).map(stem));
   let total = 0;
   for (const word of words) {
     const root = stem(word);
     const inText = text.includes(word) || text.includes(root) || stems.has(root);
-    const hit = (name === word ? 100 : name.includes(word) || name.includes(root) ? 50 : 0) + (tags.includes(word) || tags.includes(root) ? 30 : 0) + (inText ? 10 : 0);
+    const inRelation = relationText.includes(word) || relationText.includes(root) || relationStems.has(root);
+    const hit = (name === word ? 100 : name.includes(word) || name.includes(root) ? 50 : 0) + (tags.includes(word) || tags.includes(root) ? 30 : 0) + (inText ? 10 : 0) + (inRelation ? 1 : 0);
     if (!hit) return 0;
     total += hit;
   }

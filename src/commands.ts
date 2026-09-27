@@ -15,7 +15,7 @@ import { contract } from './contract.ts';
 import { clean } from './describe.ts';
 import { listGithub, validOwner } from './github.ts';
 import { page, renderCommandHelp, renderDescribed, renderHelp, renderItems, renderRelation, renderRepo, renderScan, renderSync } from './output.ts';
-import { readDeclaredRelations, relatedTo } from './relations.ts';
+import { readDeclaredRelations, relatedTo, searchableRelationText } from './relations.ts';
 import { applyOverride, findRepo, mergeRepos, searchRepos, summary } from './repos.ts';
 import { defaultDepth, findRepositories, readLocalRepo } from './scan.ts';
 import { defaultSkillsDir, syncSkill } from './skill.ts';
@@ -154,7 +154,7 @@ const commands: Record<string, Command> = {
   } }),
   search: command({ minArgs: 1, maxArgs: Infinity, text: renderItems, run: ({ args, limit }) => {
     const index = readIndex();
-    return listed(index, searchRepos(index.repos, args.join(' ')), limit);
+    return listed(index, searchRepos(index.repos, args.join(' '), searchableRelationText(index.repos, readConfig().relations)), limit);
   } }),
   show: command({ minArgs: 1, maxArgs: 1, text: renderRepo, run: ({ args: [ref] }) => {
     const index = readIndex();

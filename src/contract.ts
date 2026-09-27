@@ -23,7 +23,7 @@ export const contract = {
       { ...arg('--depth', 'How many directories deep to look under each root.'), type: 'integer', default: 4 },
     ] },
     { name: 'list', description: 'List indexed repositories with their descriptions.', mutating: false, args: [flag('--undescribed', 'Only repositories with no description.')] },
-    { name: 'search', description: 'Find repositories by name, description, topic, or language.', mutating: false, args: [arg('query', 'Search words; all must match.', true)] },
+    { name: 'search', description: 'Find repositories by name, description, topic, language, or relation explanations.', mutating: false, args: [arg('query', 'Search words; all must match.', true)] },
     { name: 'show', description: 'Show one repository: path, remote, branch, language, manifests, agent files, and related repositories.', mutating: false, args: [arg('repo', 'Id, name, owner/name, or path.', true)] },
     { name: 'describe', description: 'Set or clear a description override that survives rescans.', mutating: true, args: [arg('repo', 'Id, name, owner/name, or path.', true), arg('text', 'One-sentence description.'), flag('--clear', 'Remove the override.')] },
     { name: 'related', description: 'List repositories related to one, in both directions: those it declares in its .shelf.json, those declaring it, and your local relations. Local relations replace repo-file ones between the same pair.', mutating: false, args: [arg('repo', 'Id, name, owner/name, or path.', true)] },

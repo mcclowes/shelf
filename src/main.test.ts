@@ -130,6 +130,7 @@ test('sync writes the skill once and refuses a directory it does not own', t => 
   const first = json('sync', '--skills-dir', skills);
   assert.equal(first.changed, true);
   assert.match(readFileSync(first.file, 'utf8'), /^---\nname: shelf\n/);
+  assert.match(readFileSync(first.file, 'utf8'), /relation explanations/);
   assert.equal(json('sync', '--skills-dir', skills).changed, false);
 
   const other = join(dir, 'other-skills');
@@ -186,9 +187,67 @@ test('relate records machine-local relations that survive rescans and win over r
   assert.equal(run('relate', 'gamma', 'delta', '--clear').status, 1);
 });
 
+test('search finds both endpoints from a declared relation explanation', t => {
+  const { root, paths, json } = fixture(t);
+  write(join(paths.gamma, '.shelf.json'), JSON.stringify({ related: [{ repo: 'alpha', relation: 'Shares FETTLE_SERVICE_SECRET' }] }));
+  json('scan', '--root', root);
+
+  assert.deepEqual(json('search', 'fettle_service_secret').items.map((item: { name: string }) => item.name), ['alpha', 'gamma']);
+});
+
+test('search finds machine-local relation explanations without rescanning', t => {
+  const { root, json } = fixture(t);
+  json('scan', '--root', root);
+  json('relate', 'gamma', 'delta', 'Uses the local signing oracle');
+
+  assert.deepEqual(json('search', 'signing oracle').items.map((item: { name: string }) => item.name), ['delta', 'gamma']);
+});
+
+test('search keeps unresolved declared relations on their declaring repository', t => {
+  const { root, paths, json } = fixture(t);
+  write(join(paths.gamma, '.shelf.json'), JSON.stringify({ related: [{ repo: 'github.com/acme/missing', relation: 'Owns the unresolved beacon' }] }));
+  json('scan', '--root', root);
+
+  assert.deepEqual(json('search', 'unresolved beacon').items.map((item: { name: string }) => item.name), ['gamma']);
+});
+
+test('local relations replace declared explanations in search', t => {
+  const { root, paths, json } = fixture(t);
+  write(join(paths.gamma, '.shelf.json'), JSON.stringify({ related: [{ repo: 'alpha', relation: 'Uses the stale repository phrase' }] }));
+  json('scan', '--root', root);
+  json('relate', 'gamma', 'alpha', 'Uses the current local phrase');
+
+  assert.deepEqual(json('search', 'current local').items.map((item: { name: string }) => item.name), ['alpha', 'gamma']);
+  assert.equal(json('search', 'stale repository').total, 0);
+});
+
+test('search requires every word across repository and relation text', t => {
+  const { root, paths, json } = fixture(t);
+  write(join(paths.gamma, '.shelf.json'), JSON.stringify({ related: [{ repo: 'alpha', relation: 'Shares a tesseract archive' }] }));
+  json('scan', '--root', root);
+
+  assert.deepEqual(json('search', 'gamma tesseract').items.map((item: { name: string }) => item.name), ['gamma']);
+  assert.equal(json('search', 'gamma tesseract missing').total, 0);
+});
+
+test('search deduplicates relation matches and ranks stronger repository matches first', t => {
+  const { root, paths, json } = fixture(t);
+  repo(root, 'constellation');
+  repo(root, 'description-hit', { 'README.md': '# Description hit\n\nConstellation reference.' });
+  write(join(paths.gamma, '.shelf.json'), JSON.stringify({ related: [
+    { repo: 'alpha', relation: 'Constellation connection' },
+    { repo: 'delta', relation: 'Constellation connection' },
+  ] }));
+  write(join(paths.delta, '.shelf.json'), JSON.stringify({ related: [{ repo: 'alpha', relation: 'Constellation connection' }] }));
+  json('scan', '--root', root);
+
+  assert.deepEqual(json('search', 'constellation').items.map((item: { name: string }) => item.name), ['constellation', 'description-hit', 'alpha', 'delta', 'gamma']);
+});
+
 test('schema describes the CLI offline and text output renders for people', t => {
   const { root, json, run } = fixture(t);
   assert.equal(json('schema').name, 'shelf');
+  assert.match(json('search', '--help').command.description, /relation explanations/);
   assert.match(run('--help', '--output', 'text').stdout, /shelf scan/);
   json('scan', '--root', root);
   assert.match(run('list', '--output', 'text').stdout, /delta\t\(no description\)/);

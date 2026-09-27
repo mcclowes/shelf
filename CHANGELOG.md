@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-27
+
+- `shelf search` now searches declared and machine-local relation explanations, returning both indexed endpoints for resolved relations.
+- Local relation overrides replace stale repository-declared explanations in search immediately; unresolved declared relations remain attached to the declaring repository.
+
 ## [0.2.0] - 2026-09-25
 
 - Related repositories: declare them in a repository's `.shelf.json`, or record your own with `shelf relate`. `shelf related` and `shelf show` list them in both directions.

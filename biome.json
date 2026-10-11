@@ -7,7 +7,7 @@
   "linter": {
     "enabled": true,
     "rules": {
-      "recommended": true,
+      "preset": "recommended",
       "style": { "noNonNullAssertion": "off" },
       "complexity": { "noUselessUndefinedInitialization": "off" },
       "suspicious": { "noExplicitAny": "warn", "noControlCharactersInRegex": "off", "noConfusingVoidType": "off" },

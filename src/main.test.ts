@@ -1,9 +1,10 @@
-import { test } from 'node:test';
+import { test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import type { RelatedItem } from './relations.ts';
 
 const main = new URL('./main.ts', import.meta.url);
 
@@ -25,7 +26,7 @@ function repo(root: string, name: string, files: Record<string, string> = {}, re
   return dir;
 }
 
-function fixture(t: any) {
+function fixture(t: TestContext) {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), 'shelf-test-')));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const root = join(dir, 'code');
@@ -57,7 +58,7 @@ test('scan indexes local clones, merges GitHub metadata, and skips dependency an
   assert.deepEqual({ total: scanned.total, local: scanned.local, github_only: scanned.github_only, undescribed: scanned.undescribed }, { total: 4, local: 3, github_only: 1, undescribed: 2 });
 
   const listed = json('list');
-  assert.deepEqual(listed.items.map((item: any) => item.name), ['alpha', 'beta', 'delta', 'gamma']);
+  assert.deepEqual(listed.items.map((item: { name: string }) => item.name), ['alpha', 'beta', 'delta', 'gamma']);
   assert.ok(listed.scanned_at);
 
   const alpha = json('show', 'acme/alpha');
@@ -213,15 +214,15 @@ test('scan still skips unreadable nested directories', t => {
 test('search ranks by name and filters on every word', t => {
   const { root, json } = fixture(t);
   json('scan', '--root', root, '--github', 'acme');
-  assert.deepEqual(json('search', 'gamma').items.map((item: any) => item.name), ['gamma']);
-  assert.deepEqual(json('search', 'typescript').items.map((item: any) => item.name), ['alpha']);
+  assert.deepEqual(json('search', 'gamma').items.map((item: { name: string }) => item.name), ['gamma']);
+  assert.deepEqual(json('search', 'typescript').items.map((item: { name: string }) => item.name), ['alpha']);
   assert.equal(json('search', 'nothing', 'matches').total, 0);
 });
 
 test('describe overrides survive rescans and clear restores the scanned description', t => {
   const { root, run, json } = fixture(t);
   json('scan', '--root', root);
-  assert.deepEqual(json('list', '--undescribed').items.map((item: any) => item.name), ['delta']);
+  assert.deepEqual(json('list', '--undescribed').items.map((item: { name: string }) => item.name), ['delta']);
 
   const described = json('describe', 'delta', 'Delta\u0007  service');
   assert.equal(described.description, 'Delta service');
@@ -278,7 +279,7 @@ test('a repository declares related repositories in .shelf.json, visible from bo
   assert.equal(scanned.warnings.length, 2);
 
   const gamma = json('related', 'gamma');
-  assert.deepEqual(gamma.items.map((item: any) => [item.ref, item.name, item.direction, item.source, item.relation]), [
+  assert.deepEqual(gamma.items.map((item: RelatedItem) => [item.ref, item.name, item.direction, item.source, item.relation]), [
     ['acme/alpha', 'alpha', 'outgoing', 'repo', 'Consumes the alpha API'],
     ['https://github.com/acme/beta.git', 'beta', 'outgoing', 'repo', null],
     ['../../delta', 'delta', 'outgoing', 'repo', 'Shares a database schema'],
@@ -287,7 +288,7 @@ test('a repository declares related repositories in .shelf.json, visible from bo
   assert.equal(gamma.items[2].path, paths.delta);
 
   const alpha = json('related', 'alpha');
-  assert.deepEqual(alpha.items.map((item: any) => [item.name, item.direction, item.relation]), [['gamma', 'incoming', 'Consumes the alpha API']]);
+  assert.deepEqual(alpha.items.map((item: RelatedItem) => [item.name, item.direction, item.relation]), [['gamma', 'incoming', 'Consumes the alpha API']]);
   assert.equal(json('show', 'alpha').related.length, 1);
 });
 
@@ -299,7 +300,7 @@ test('relate records machine-local relations that survive rescans and win over r
   assert.deepEqual(json('relate', 'gamma', 'alpha', 'Mine'), { related: paths.gamma, to: paths.alpha, relation: 'Mine' });
   json('relate', 'delta', 'gamma');
   json('scan');
-  assert.deepEqual(json('related', 'gamma').items.map((item: any) => [item.name, item.direction, item.source, item.relation]), [
+  assert.deepEqual(json('related', 'gamma').items.map((item: RelatedItem) => [item.name, item.direction, item.source, item.relation]), [
     ['alpha', 'outgoing', 'local', 'Mine'],
     ['delta', 'incoming', 'local', null],
   ]);

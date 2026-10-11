@@ -23,25 +23,31 @@ export function readDeclaredRelations(path: string): { related?: DeclaredRelatio
   } catch {
     return { warnings: [] };
   }
-  let data: any;
+  let data: unknown;
   try {
     data = JSON.parse(text);
   } catch {
     return { warnings: [`${file} is not valid JSON.`] };
   }
-  if (!Array.isArray(data?.related)) return { warnings: [`${file} needs a "related" array.`] };
+  const entries = asObject(data)?.related;
+  if (!Array.isArray(entries)) return { warnings: [`${file} needs a "related" array.`] };
   const warnings: string[] = [];
   const related: DeclaredRelation[] = [];
-  for (const [position, entry] of data.related.entries()) {
+  for (const [position, value] of (entries as unknown[]).entries()) {
+    const entry = asObject(value);
     const ref = typeof entry?.repo === 'string' ? entry.repo.trim() : '';
     if (!ref) {
       warnings.push(`${file} related[${position}] needs a "repo".`);
       continue;
     }
-    const relation = typeof entry.relation === 'string' ? clean(entry.relation) : undefined;
+    const relation = typeof entry?.relation === 'string' ? clean(entry.relation) : undefined;
     related.push({ ref, ...(relation ? { relation } : {}) });
   }
   return { related, warnings };
+}
+
+function asObject(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === 'object' ? value as Record<string, unknown> : undefined;
 }
 
 type Source = 'repo' | 'local';

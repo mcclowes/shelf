@@ -23,7 +23,8 @@ export function findRepositories(roots: string[], depth = defaultDepth): { paths
     let entries: Dirent[];
     try {
       entries = readdirSync(next.dir, { withFileTypes: true });
-    } catch {
+    } catch (cause) {
+      if (next.level === 0) throw new Error(`Cannot read root: ${next.dir}`, { cause });
       continue;
     }
     if (entries.some(entry => entry.name === '.git' && entry.isDirectory())) {

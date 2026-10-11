@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -84,6 +84,130 @@ test('scan reuses saved roots and owners, and --no-github drops owners', t => {
   assert.deepEqual(local.github, []);
   assert.equal(local.total, 3);
   assert.equal(json('show', 'alpha').description, 'Local alpha readme.');
+});
+
+test('scan rejects a file root without changing the saved configuration or index', t => {
+  const { dir, root, run, json } = fixture(t);
+  json('scan', '--root', root, '--no-github');
+  const config = join(dir, 'config', 'config.json');
+  const index = join(dir, 'config', 'index.json');
+  const beforeConfig = readFileSync(config, 'utf8');
+  const beforeIndex = readFileSync(index, 'utf8');
+  const file = join(dir, 'not-a-directory.txt');
+  write(file, 'A file cannot be a scan root.\n');
+
+  const result = run('scan', '--root', file, '--no-github');
+
+  assert.equal(result.status, 1);
+  assert.equal(result.stdout, '');
+  const error = JSON.parse(result.stderr).error;
+  assert.equal(error.kind, 'invalid_request');
+  assert.equal(error.message, `Root is not a directory: ${file}`);
+  assert.equal(readFileSync(config, 'utf8'), beforeConfig);
+  assert.equal(readFileSync(index, 'utf8'), beforeIndex);
+});
+
+test('scan rejects an unreadable root without changing the saved configuration or index', t => {
+  if (!process.getuid || process.getuid() === 0) return t.skip('Requires a non-root Unix user for permission checks.');
+  const { dir, root, run, json } = fixture(t);
+  json('scan', '--root', root, '--no-github');
+  const config = join(dir, 'config', 'config.json');
+  const index = join(dir, 'config', 'index.json');
+  const beforeConfig = readFileSync(config, 'utf8');
+  const beforeIndex = readFileSync(index, 'utf8');
+  chmodSync(root, 0);
+  let result: ReturnType<typeof run>;
+  try {
+    result = run('scan', '--root', root, '--no-github');
+  } finally {
+    chmodSync(root, 0o700);
+  }
+
+  assert.equal(result.status, 1);
+  assert.equal(result.stdout, '');
+  const error = JSON.parse(result.stderr).error;
+  assert.equal(error.kind, 'invalid_request');
+  assert.equal(error.message, `Cannot read root: ${root}`);
+  assert.equal(readFileSync(config, 'utf8'), beforeConfig);
+  assert.equal(readFileSync(index, 'utf8'), beforeIndex);
+});
+
+for (const saved of [false, true]) {
+  test(`scan rejects file roots in ${saved ? 'saved configuration' : 'mixed explicit roots'} before writing state`, t => {
+    const { dir, root, run, json } = fixture(t);
+    json('scan', '--root', root, '--no-github');
+    const config = join(dir, 'config', 'config.json');
+    const index = join(dir, 'config', 'index.json');
+    const file = join(dir, 'not-a-directory.txt');
+    write(file, 'Not a directory.\n');
+    if (saved) {
+      const data = JSON.parse(readFileSync(config, 'utf8'));
+      write(config, JSON.stringify({ ...data, roots: [file] }));
+    }
+    const beforeConfig = readFileSync(config, 'utf8');
+    const beforeIndex = readFileSync(index, 'utf8');
+
+    const result = saved ? run('scan', '--no-github') : run('scan', '--root', root, '--root', file, '--no-github');
+
+    assert.equal(result.status, 1);
+    assert.equal(result.stdout, '');
+    assert.deepEqual(JSON.parse(result.stderr).error, { kind: 'invalid_request', message: `Root is not a directory: ${file}` });
+    assert.equal(readFileSync(config, 'utf8'), beforeConfig);
+    assert.equal(readFileSync(index, 'utf8'), beforeIndex);
+  });
+}
+
+test('missing roots keep the existing error and leave scan state untouched', t => {
+  const { dir, root, run, json } = fixture(t);
+  json('scan', '--root', root, '--no-github');
+  const config = join(dir, 'config', 'config.json');
+  const index = join(dir, 'config', 'index.json');
+  const beforeConfig = readFileSync(config, 'utf8');
+  const beforeIndex = readFileSync(index, 'utf8');
+  const missing = join(dir, 'missing');
+
+  const result = run('scan', '--root', missing, '--no-github');
+
+  assert.equal(result.status, 1);
+  assert.deepEqual(JSON.parse(result.stderr).error, { kind: 'invalid_request', message: `Root does not exist: ${missing}` });
+  assert.equal(readFileSync(config, 'utf8'), beforeConfig);
+  assert.equal(readFileSync(index, 'utf8'), beforeIndex);
+});
+
+test('scan accepts symlinked directory roots and rejects symlinked file roots', t => {
+  const { dir, root, run, json } = fixture(t);
+  const directoryLink = join(dir, 'directory-link');
+  symlinkSync(root, directoryLink, 'dir');
+  assert.equal(json('scan', '--root', directoryLink, '--no-github').local, 3);
+
+  const file = join(dir, 'not-a-directory.txt');
+  const fileLink = join(dir, 'file-link');
+  write(file, 'Not a directory.\n');
+  symlinkSync(file, fileLink, 'file');
+  const config = join(dir, 'config', 'config.json');
+  const index = join(dir, 'config', 'index.json');
+  const beforeConfig = readFileSync(config, 'utf8');
+  const beforeIndex = readFileSync(index, 'utf8');
+
+  const result = run('scan', '--root', fileLink, '--no-github');
+
+  assert.equal(result.status, 1);
+  assert.deepEqual(JSON.parse(result.stderr).error, { kind: 'invalid_request', message: `Root is not a directory: ${fileLink}` });
+  assert.equal(readFileSync(config, 'utf8'), beforeConfig);
+  assert.equal(readFileSync(index, 'utf8'), beforeIndex);
+});
+
+test('scan still skips unreadable nested directories', t => {
+  if (!process.getuid || process.getuid() === 0) return t.skip('Requires a non-root Unix user for permission checks.');
+  const { root, json } = fixture(t);
+  const nested = repo(root, 'unreadable');
+  chmodSync(nested, 0);
+  try {
+    assert.equal(json('scan', '--root', root, '--no-github').local, 3);
+    assert.deepEqual(json('list').items.map((item: { name: string }) => item.name), ['alpha', 'delta', 'gamma']);
+  } finally {
+    chmodSync(nested, 0o700);
+  }
 });
 
 test('search ranks by name and filters on every word', t => {

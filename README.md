@@ -62,6 +62,7 @@ A relation shows on both repositories: as outgoing on the one that declares it a
 - **Invalid roots.** Missing, file, or unreadable roots abort the scan without changing the saved configuration or index. Unreadable nested directories are skipped.
 - **GitHub repositories.** `gh repo list <owner>` fetches up to 1,000 repositories per owner. A local clone is matched to its GitHub repository by its remotes, origin first, so each repository appears once. A fork whose origin is upstream still matches through its other remote.
 - **Descriptions.** In order of precedence: your `shelf describe` override, the GitHub description, the `package.json`, `Cargo.toml`, or `pyproject.toml` description, then the README's first prose paragraph, then the first prose paragraph of `AGENTS.md` or `CLAUDE.md`. Descriptions are cleaned and capped at 280 characters. Overrides are keyed by remote, so they survive moves and rescans.
+- **Agent guidance.** `shelf show` lists existing `AGENTS.md`, `CLAUDE.md`, `.clip/commands.md`, and legacy `.saggar/commands.md` files in `agent_files`. Catalog commands are never executed during a scan.
 
 The configuration and the index live in `~/.config/shelf`. Set `SHELF_HOME` to use another location.
 

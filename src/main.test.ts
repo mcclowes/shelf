@@ -77,6 +77,23 @@ test('scan indexes local clones, merges GitHub metadata, and skips dependency an
   assert.equal(json('show', 'beta').path, undefined);
 });
 
+test('scan exposes modern and legacy command catalogs without executing them', t => {
+  const { dir, root, paths, json } = fixture(t);
+  const catalog = '# Commands\n\n- Unsafe fixture: `touch should-not-exist` #writes\n';
+  write(join(paths.alpha, '.saggar/commands.md'), catalog);
+  write(join(paths.gamma, '.clip/commands.md'), catalog);
+  write(join(paths.delta, '.clip/commands.md'), catalog);
+  write(join(paths.delta, '.saggar/commands.md'), catalog);
+
+  json('scan', '--root', root, '--no-github');
+
+  assert.deepEqual(json('show', 'alpha').agent_files, ['AGENTS.md', '.saggar/commands.md']);
+  assert.deepEqual(json('show', 'gamma').agent_files, ['.clip/commands.md']);
+  assert.deepEqual(json('show', 'delta').agent_files, ['.clip/commands.md', '.saggar/commands.md']);
+  assert.equal(existsSync(join(dir, 'should-not-exist')), false);
+  for (const path of Object.values(paths)) assert.equal(existsSync(join(path, 'should-not-exist')), false);
+});
+
 test('scan reuses saved roots and owners, and --no-github drops owners', t => {
   const { root, json } = fixture(t);
   json('scan', '--root', root, '--github', 'acme');

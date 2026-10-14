@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { pathToFileURL } from 'node:url';
 
 function packagingFixture(t: TestContext) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'shelf-packaging-test-')));
@@ -21,15 +22,18 @@ function packagingFixture(t: TestContext) {
   writeFileSync(join(root, 'package.json'), JSON.stringify({ version: '1.2.3', type: 'module' }));
   writeFileSync(join(root, 'README.md'), 'Fixture readme\n');
   writeFileSync(join(root, 'LICENSE'), 'Fixture license\n');
-  const run = (path = process.env.PATH) => spawnSync(process.execPath, ['scripts/package-release.mjs'], {
+  const run = (path = process.env.PATH, environment: NodeJS.ProcessEnv = {}) => spawnSync(process.execPath, ['scripts/package-release.mjs'], {
     cwd: root,
-    env: { ...process.env, SHELF_HOME: join(root, 'shelf-state'), TMPDIR: temporary, TMP: temporary, TEMP: temporary, PATH: path },
+    env: { ...process.env, SHELF_HOME: join(root, 'shelf-state'), TMPDIR: temporary, TMP: temporary, TEMP: temporary, PATH: path, ...environment },
     encoding: 'utf8',
     timeout: 10000,
   });
   const assertClean = () => {
     assert.deepEqual(readdirSync(temporary), ['shelf-release-unrelated']);
     assert.equal(readFileSync(join(neighbor, 'keep.txt'), 'utf8'), 'preserve');
+    if (existsSync(join(root, 'release'))) {
+      assert.deepEqual(readdirSync(join(root, 'release')).filter(name => name.startsWith('.shelf-release-output-')), []);
+    }
   };
   return { root, run, assertClean };
 }
@@ -78,5 +82,82 @@ test('release packaging preserves tar errors and removes staging', t => {
   assert.match(result.stderr, /spawnSync tar ENOENT/);
   assert.equal(result.stdout, '');
   assert.equal(existsSync(join(root, 'release', 'shelf-1.2.3.tar.gz.sha256')), false);
+  assertClean();
+});
+
+test('partial tar failure preserves previous archive and checksum', t => {
+  const { root, run, assertClean } = packagingFixture(t);
+  const archive = join(root, 'release', 'shelf-1.2.3.tar.gz');
+  mkdirSync(join(root, 'release'));
+  writeFileSync(archive, 'previous archive');
+  writeFileSync(`${archive}.sha256`, 'previous checksum');
+  const tools = join(root, 'tools');
+  mkdirSync(tools);
+  writeFileSync(join(tools, 'tar'), '#!/bin/sh\nprintf partial > "$2"\nexit 37\n', { mode: 0o755 });
+  const result = run(tools);
+  assert.equal(result.error, undefined);
+  assert.equal(result.status, 1);
+  assert.equal(readFileSync(archive, 'utf8'), 'previous archive');
+  assert.equal(readFileSync(`${archive}.sha256`, 'utf8'), 'previous checksum');
+  assertClean();
+});
+
+test('missing build input preserves previous artifacts', t => {
+  const { root, run, assertClean } = packagingFixture(t);
+  const archive = join(root, 'release', 'shelf-1.2.3.tar.gz');
+  mkdirSync(join(root, 'release'));
+  writeFileSync(archive, 'previous archive');
+  writeFileSync(`${archive}.sha256`, 'previous checksum');
+  rmSync(join(root, 'dist'), { recursive: true });
+  assert.equal(run().status, 1);
+  assert.equal(readFileSync(archive, 'utf8'), 'previous archive');
+  assert.equal(readFileSync(`${archive}.sha256`, 'utf8'), 'previous checksum');
+  assertClean();
+});
+
+test('checksum creation failure preserves previous artifacts', t => {
+  const { root, run, assertClean } = packagingFixture(t);
+  const archive = join(root, 'release', 'shelf-1.2.3.tar.gz');
+  mkdirSync(join(root, 'release'));
+  writeFileSync(archive, 'previous archive');
+  writeFileSync(`${archive}.sha256`, 'previous checksum');
+  const observer = join(root, 'deny-checksum.mjs');
+  writeFileSync(observer, `
+    import fs from 'node:fs';
+    import { syncBuiltinESMExports } from 'node:module';
+    const write = fs.writeFileSync;
+    fs.writeFileSync = function(file, ...args) {
+      if (String(file).includes('.shelf-release-output-') && String(file).endsWith('.tar.gz.sha256')) {
+        throw Object.assign(new Error('fixture checksum failure'), { code: 'EACCES' });
+      }
+      return Reflect.apply(write, this, [file, ...args]);
+    };
+    syncBuiltinESMExports();
+  `);
+  const result = run(process.env.PATH, { NODE_OPTIONS: `--import=${pathToFileURL(observer).href}` });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /fixture checksum failure/);
+  assert.equal(readFileSync(archive, 'utf8'), 'previous archive');
+  assert.equal(readFileSync(`${archive}.sha256`, 'utf8'), 'previous checksum');
+  assertClean();
+});
+
+test('repeated packaging replaces previous artifacts with a valid executable archive', t => {
+  const { root, run, assertClean } = packagingFixture(t);
+  assert.equal(run().status, 0);
+  const archive = join(root, 'release', 'shelf-1.2.3.tar.gz');
+  const previous = readFileSync(archive);
+  writeFileSync(join(root, 'dist', 'main.js'), 'console.log("updated Shelf");\n');
+  const result = run();
+  assert.equal(result.status, 0, result.stderr);
+  assert.notDeepEqual(readFileSync(archive), previous);
+  const digest = createHash('sha256').update(readFileSync(archive)).digest('hex');
+  assert.equal(readFileSync(`${archive}.sha256`, 'utf8'), `${digest}  shelf-1.2.3.tar.gz\n`);
+  const extracted = join(root, 'repeated');
+  mkdirSync(extracted);
+  execFileSync('tar', ['-xzf', archive, '-C', extracted]);
+  const executable = join(extracted, 'shelf-1.2.3', 'dist', 'main.js');
+  assert.equal(readFileSync(executable, 'utf8'), 'console.log("updated Shelf");\n');
+  assert.equal(statSync(executable).mode & 0o777, 0o755);
   assertClean();
 });

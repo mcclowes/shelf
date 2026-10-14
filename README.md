@@ -82,3 +82,8 @@ npm run check
 npm run build
 node dist/main.js --help
 ```
+
+Local release packaging stages the archive and checksum before replacing their
+final files. Missing inputs, tar failures, or checksum creation failures preserve
+previous local artifacts. `node --test scripts/package-release.test.ts` checks
+failure retention and staging cleanup with disposable release fixtures.

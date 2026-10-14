@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 
+- Release packaging preserves previous archives and checksums when archive or checksum creation fails.
 - Release packaging removes its temporary staging directory after success or failure.
 - Repository scans include legacy `.saggar/commands.md` catalogs in `agent_files`, alongside `.clip/commands.md`.
 

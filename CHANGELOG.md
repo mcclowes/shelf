@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 
+- Release packaging restores the previous archive if checksum promotion fails and retains recovery files if restoration also fails.
 - Release packaging preserves previous archives and checksums when archive or checksum creation fails.
 - Release packaging removes its temporary staging directory after success or failure.
 - Repository scans include legacy `.saggar/commands.md` catalogs in `agent_files`, alongside `.clip/commands.md`.

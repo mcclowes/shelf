@@ -161,3 +161,87 @@ test('repeated packaging replaces previous artifacts with a valid executable arc
   assert.equal(statSync(executable).mode & 0o777, 0o755);
   assertClean();
 });
+
+function denyPromotion(root: string, phase: 'archive' | 'checksum', denyRollback = false) {
+  const observer = join(root, 'deny-promotion.mjs');
+  writeFileSync(observer, `
+    import fs from 'node:fs';
+    import { syncBuiltinESMExports } from 'node:module';
+    const rename = fs.renameSync;
+    fs.renameSync = function(source, destination) {
+      const path = String(source);
+      if (path.includes('.shelf-release-output-') && path.endsWith(${JSON.stringify(phase === 'archive' ? '/shelf-1.2.3.tar.gz' : '.tar.gz.sha256')})) {
+        throw Object.assign(new Error('fixture ${phase} promotion failure'), { code: 'EACCES' });
+      }
+      if (${denyRollback} && path.endsWith('/previous-archive.tar.gz')) {
+        throw Object.assign(new Error('fixture rollback failure'), { code: 'EACCES' });
+      }
+      return Reflect.apply(rename, this, [source, destination]);
+    };
+    syncBuiltinESMExports();
+  `);
+  return { NODE_OPTIONS: `--import=${pathToFileURL(observer).href}` };
+}
+
+for (const phase of ['archive', 'checksum'] as const) {
+  for (const previous of [false, true]) {
+    test(`${phase} promotion failure preserves ${previous ? 'previous artifacts' : 'absent outputs'}`, t => {
+      const { root, run, assertClean } = packagingFixture(t);
+      const archive = join(root, 'release', 'shelf-1.2.3.tar.gz');
+      if (previous) {
+        mkdirSync(join(root, 'release'));
+        writeFileSync(archive, 'previous archive');
+        writeFileSync(`${archive}.sha256`, 'previous checksum');
+        chmodSync(archive, 0o640);
+      }
+      const result = run(process.env.PATH, denyPromotion(root, phase));
+      assert.equal(result.error, undefined);
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, new RegExp(`fixture ${phase} promotion failure`));
+      assert.equal(result.stdout, '');
+      assert.equal(existsSync(archive), previous);
+      assert.equal(existsSync(`${archive}.sha256`), previous);
+      if (previous) {
+        assert.equal(readFileSync(archive, 'utf8'), 'previous archive');
+        assert.equal(readFileSync(`${archive}.sha256`, 'utf8'), 'previous checksum');
+        assert.equal(statSync(archive).mode & 0o777, 0o640);
+      }
+      assertClean();
+    });
+  }
+}
+
+test('a checksum directory collision preserves the prior archive and conflicting directory', t => {
+  const { root, run, assertClean } = packagingFixture(t);
+  const archive = join(root, 'release', 'shelf-1.2.3.tar.gz');
+  mkdirSync(`${archive}.sha256`, { recursive: true });
+  writeFileSync(archive, 'previous archive');
+  writeFileSync(join(`${archive}.sha256`, 'keep.txt'), 'preserve collision');
+  const result = run();
+  assert.equal(result.status, 1);
+  assert.equal(readFileSync(archive, 'utf8'), 'previous archive');
+  assert.equal(readFileSync(join(`${archive}.sha256`, 'keep.txt'), 'utf8'), 'preserve collision');
+  assertClean();
+});
+
+test('rollback failure retains the prior archive and reports its recovery directory', t => {
+  const { root, run } = packagingFixture(t);
+  const release = join(root, 'release');
+  const archive = join(release, 'shelf-1.2.3.tar.gz');
+  mkdirSync(release);
+  writeFileSync(archive, 'previous archive');
+  writeFileSync(`${archive}.sha256`, 'previous checksum');
+  const result = run(process.env.PATH, denyPromotion(root, 'checksum', true));
+  assert.equal(result.error, undefined);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /fixture checksum promotion failure/);
+  assert.match(result.stderr, /fixture rollback failure/);
+  const recovery = readdirSync(release).filter(name => name.startsWith('.shelf-release-output-'));
+  assert.equal(recovery.length, 1);
+  const recoveryDirectory = join(release, recovery[0]);
+  assert.ok(result.stderr.includes(recoveryDirectory));
+  assert.equal(readFileSync(join(recoveryDirectory, 'previous-archive.tar.gz'), 'utf8'), 'previous archive');
+  assert.equal(readFileSync(`${archive}.sha256`, 'utf8'), 'previous checksum');
+  assert.deepEqual(readdirSync(join(root, 'temporary')), ['shelf-release-unrelated']);
+  assert.equal(readFileSync(join(root, 'temporary', 'shelf-release-unrelated', 'keep.txt'), 'utf8'), 'preserve');
+});

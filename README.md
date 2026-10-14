@@ -85,5 +85,9 @@ node dist/main.js --help
 
 Local release packaging stages the archive and checksum before replacing their
 final files. Missing inputs, tar failures, or checksum creation failures preserve
-previous local artifacts. `node --test scripts/package-release.test.ts` checks
-failure retention and staging cleanup with disposable release fixtures.
+previous local artifacts. If checksum promotion fails, the previous archive is
+restored, or the new archive is removed when no previous archive existed. If
+restoration also fails, the error reports a recovery directory containing the
+previous archive; that directory is retained instead of being cleaned up.
+`node --test scripts/package-release.test.ts` checks failure retention, rollback,
+and staging cleanup with disposable release fixtures.

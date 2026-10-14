@@ -282,6 +282,66 @@ test('sync writes the skill once and refuses a directory it does not own', t => 
   assert.ok(!existsSync(join(other, 'shelf', '.shelf-owned')));
 });
 
+test('scan warns when a relation file is a directory while keeping repository results', t => {
+  const { root, paths, json } = fixture(t);
+  const relations = join(paths.gamma, '.shelf.json');
+  mkdirSync(relations);
+
+  const scanned = json('scan', '--root', root, '--no-github');
+  assert.equal(scanned.total, 3);
+  assert.equal(scanned.warnings?.length, 1);
+  assert.ok(scanned.warnings[0].includes(relations));
+  assert.match(scanned.warnings[0], /EISDIR/);
+  assert.deepEqual(json('list').items.map((item: { name: string }) => item.name), ['alpha', 'delta', 'gamma']);
+});
+
+test('scan warns for a dangling relation-file symlink instead of treating it as absent', t => {
+  const { dir, root, paths, json } = fixture(t);
+  const relations = join(paths.gamma, '.shelf.json');
+  symlinkSync(join(dir, 'missing-relations.json'), relations);
+
+  const scanned = json('scan', '--root', root, '--no-github');
+  assert.equal(scanned.total, 3);
+  assert.equal(scanned.warnings?.length, 1);
+  assert.ok(scanned.warnings[0].includes(relations));
+  assert.match(scanned.warnings[0], /ENOENT/);
+});
+
+test('scan warns for a permission-denied relation file without failing the scan', t => {
+  if (!process.getuid || process.getuid() === 0) return t.skip('Requires non-root Unix file permissions.');
+  const { root, paths, json } = fixture(t);
+  const relations = join(paths.gamma, '.shelf.json');
+  write(relations, JSON.stringify({ related: [{ repo: 'alpha' }] }));
+  chmodSync(relations, 0);
+  try {
+    const scanned = json('scan', '--root', root, '--no-github');
+    assert.equal(scanned.total, 3);
+    assert.equal(scanned.warnings?.length, 1);
+    assert.ok(scanned.warnings[0].includes(relations));
+    assert.match(scanned.warnings[0], /EACCES/);
+  } finally {
+    chmodSync(relations, 0o600);
+  }
+});
+
+test('scan follows readable symlinked relation files without warnings', t => {
+  const { dir, root, paths, json } = fixture(t);
+  const target = join(dir, 'shared-relations.json');
+  write(target, JSON.stringify({ related: [{ repo: 'alpha', relation: 'Shared fixture relation' }] }));
+  symlinkSync(target, join(paths.gamma, '.shelf.json'));
+
+  const scanned = json('scan', '--root', root, '--no-github');
+  assert.equal(scanned.warnings, undefined);
+  assert.equal(json('related', 'gamma').items[0].name, 'alpha');
+});
+
+test('scan stays quiet when optional relation files are genuinely absent', t => {
+  const { root, json } = fixture(t);
+  const scanned = json('scan', '--root', root, '--no-github');
+  assert.equal(scanned.warnings, undefined);
+  assert.equal(scanned.total, 3);
+});
+
 test('a repository declares related repositories in .shelf.json, visible from both ends', t => {
   const { root, paths, json } = fixture(t);
   write(join(paths.gamma, '.shelf.json'), JSON.stringify({ related: [

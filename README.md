@@ -49,7 +49,7 @@ Relations come from two places, and `shelf related` and `shelf show` merge them.
   }
   ```
 
-  `repo` takes `owner/name`, `host/owner/name`, a Git URL, or a path relative to the repository. Prefer remotes, since paths depend on how the clones are laid out. Scan reads the file and reports a broken one as a warning. Relations that don't match an indexed repository still appear, marked as not indexed.
+  `repo` takes `owner/name`, `host/owner/name`, a Git URL, or a path relative to the repository. Prefer remotes, since paths depend on how the clones are laid out. Scan reads the file and reports a broken one as a warning, including unreadable files and dangling symlinks. Other repositories still scan normally. Relations that don't match an indexed repository still appear, marked as not indexed.
 - **On your machine.** `shelf relate <repo> <other> [relation]` records a relation in your Shelf configuration, keyed by remote like description overrides. It replaces a repository's own relation between the same pair in `related` and search immediately, and `--clear` removes it.
 
 A relation shows on both repositories: as outgoing on the one that declares it and incoming on the other.

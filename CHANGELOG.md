@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 
+- Release packaging removes its temporary staging directory after success or failure.
 - Repository scans include legacy `.saggar/commands.md` catalogs in `agent_files`, alongside `.clip/commands.md`.
 
 ## [0.3.0] - 2026-09-27

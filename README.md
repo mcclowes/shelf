@@ -49,7 +49,7 @@ Relations come from two places, and `shelf related` and `shelf show` merge them.
   }
   ```
 
-  `repo` takes `owner/name`, `host/owner/name`, a Git URL, or a path relative to the repository. Prefer remotes, since paths depend on how the clones are laid out. Scan reads the file and reports a broken one as a warning. Relations that don't match an indexed repository still appear, marked as not indexed.
+  `repo` takes `owner/name`, `host/owner/name`, a Git URL, or a path relative to the repository. Prefer remotes, since paths depend on how the clones are laid out. Scan reads the file and reports a broken one as a warning, including unreadable files and dangling symlinks. Other repositories still scan normally. Relations that don't match an indexed repository still appear, marked as not indexed.
 - **On your machine.** `shelf relate <repo> <other> [relation]` records a relation in your Shelf configuration, keyed by remote like description overrides. It replaces a repository's own relation between the same pair in `related` and search immediately, and `--clear` removes it.
 
 A relation shows on both repositories: as outgoing on the one that declares it and incoming on the other.
@@ -59,8 +59,10 @@ A relation shows on both repositories: as outgoing on the one that declares it a
 ## How the index is built
 
 - **Local repositories.** Shelf walks each root up to `--depth` levels (4 by default). It stops at any directory with a `.git` directory and skips dot directories, `node_modules`, and build output. It also stops after 50,000 directories. Worktrees and submodules are skipped.
+- **Invalid roots.** Missing, file, or unreadable roots abort the scan without changing the saved configuration or index. Unreadable nested directories are skipped.
 - **GitHub repositories.** `gh repo list <owner>` fetches up to 1,000 repositories per owner. A local clone is matched to its GitHub repository by its remotes, origin first, so each repository appears once. A fork whose origin is upstream still matches through its other remote.
 - **Descriptions.** In order of precedence: your `shelf describe` override, the GitHub description, the `package.json`, `Cargo.toml`, or `pyproject.toml` description, then the README's first prose paragraph, then the first prose paragraph of `AGENTS.md` or `CLAUDE.md`. Descriptions are cleaned and capped at 280 characters. Overrides are keyed by remote, so they survive moves and rescans.
+- **Agent guidance.** `shelf show` lists existing `AGENTS.md`, `CLAUDE.md`, `.clip/commands.md`, and legacy `.saggar/commands.md` files in `agent_files`. Catalog commands are never executed during a scan.
 
 The configuration and the index live in `~/.config/shelf`. Set `SHELF_HOME` to use another location.
 
@@ -80,3 +82,12 @@ npm run check
 npm run build
 node dist/main.js --help
 ```
+
+Local release packaging stages the archive and checksum before replacing their
+final files. Missing inputs, tar failures, or checksum creation failures preserve
+previous local artifacts. If checksum promotion fails, the previous archive is
+restored, or the new archive is removed when no previous archive existed. If
+restoration also fails, the error reports a recovery directory containing the
+previous archive; that directory is retained instead of being cleaned up.
+`node --test scripts/package-release.test.ts` checks failure retention, rollback,
+and staging cleanup with disposable release fixtures.

@@ -1,6 +1,6 @@
 # Commands
 
-- Test: `npm test` #quick
-- Typecheck: `npm run check` #quick
-- Lint: `npm run lint` #quick
-- Build: `npm run build` #quick
+- Test: `npm run test` — CLI and isolated release-packaging regressions #quick #safe #ci
+- Typecheck: `npm run check` #quick #safe #ci
+- Lint: `npm run lint` #quick #safe #ci
+- Build: `npm run build` #quick #safe #ci

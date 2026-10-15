@@ -7,7 +7,7 @@
  *   - ./output.ts - Text renderers, one per kind of result.
  * ---
  */
-import { existsSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import type { parseArgs, ParseArgsConfig } from 'node:util';
@@ -36,15 +36,17 @@ const command = <R>(spec: { minArgs: number; maxArgs: number; run: (invocation: 
 const defaultRoot = join(homedir(), 'Development');
 const maxDepth = 12;
 
-/** Explicit or saved roots must all exist; with neither, the first scan falls back to ~/Development. */
+/** Validate every root before replacing scan state; with none, fall back to ~/Development. */
 function resolveRoots(requested: string[] | undefined, saved: string[]): string[] {
-  const roots = requested?.map(root => resolve(root)) ?? saved;
+  let roots = requested?.map(root => resolve(root)) ?? saved;
   if (!roots.length) {
     if (!existsSync(defaultRoot)) throw new Error('No roots configured. Pass --root <directory>.');
-    return [defaultRoot];
+    roots = [defaultRoot];
   }
   const missing = roots.find(root => !existsSync(root));
   if (missing) throw new Error(`Root does not exist: ${missing}`);
+  const file = roots.find(root => !statSync(root).isDirectory());
+  if (file) throw new Error(`Root is not a directory: ${file}`);
   return roots;
 }
 

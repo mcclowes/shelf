@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import type { DescriptionSource } from './store.ts';
 
 export const maxDescription = 280;
-export const agentFileNames = ['AGENTS.md', 'CLAUDE.md', '.clip/commands.md'];
+export const agentFileNames = ['AGENTS.md', 'CLAUDE.md', '.clip/commands.md', '.saggar/commands.md'];
 export const manifestNames = ['package.json', 'Cargo.toml', 'pyproject.toml', 'go.mod', 'Package.swift', 'Gemfile', 'composer.json', 'pom.xml', 'build.gradle', 'build.gradle.kts', 'mix.exs', 'deno.json'];
 const maxReadBytes = 256 * 1024;
 

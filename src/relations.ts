@@ -5,7 +5,7 @@
  *   - ./store.ts - Stores declared relations on index entries and local relations in the configuration.
  * ---
  */
-import { readFileSync } from 'node:fs';
+import { lstatSync, readFileSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
 import { clean } from './describe.ts';
 import { findRepos, summary } from './repos.ts';
@@ -20,28 +20,43 @@ export function readDeclaredRelations(path: string): { related?: DeclaredRelatio
   let text: string;
   try {
     text = readFileSync(file, 'utf8');
-  } catch {
-    return { warnings: [] };
+  } catch (error) {
+    if (asObject(error)?.code === 'ENOENT' && isAbsent(file)) return { warnings: [] };
+    return { warnings: [`${file} could not be read: ${error instanceof Error ? error.message : String(error)}`] };
   }
-  let data: any;
+  let data: unknown;
   try {
     data = JSON.parse(text);
   } catch {
     return { warnings: [`${file} is not valid JSON.`] };
   }
-  if (!Array.isArray(data?.related)) return { warnings: [`${file} needs a "related" array.`] };
+  const entries = asObject(data)?.related;
+  if (!Array.isArray(entries)) return { warnings: [`${file} needs a "related" array.`] };
   const warnings: string[] = [];
   const related: DeclaredRelation[] = [];
-  for (const [position, entry] of data.related.entries()) {
+  for (const [position, value] of (entries as unknown[]).entries()) {
+    const entry = asObject(value);
     const ref = typeof entry?.repo === 'string' ? entry.repo.trim() : '';
     if (!ref) {
       warnings.push(`${file} related[${position}] needs a "repo".`);
       continue;
     }
-    const relation = typeof entry.relation === 'string' ? clean(entry.relation) : undefined;
+    const relation = typeof entry?.relation === 'string' ? clean(entry.relation) : undefined;
     related.push({ ref, ...(relation ? { relation } : {}) });
   }
   return { related, warnings };
+}
+
+function isAbsent(file: string): boolean {
+  try {
+    return lstatSync(file, { throwIfNoEntry: false }) === undefined;
+  } catch {
+    return false;
+  }
+}
+
+function asObject(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === 'object' ? value as Record<string, unknown> : undefined;
 }
 
 type Source = 'repo' | 'local';

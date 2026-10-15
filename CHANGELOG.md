@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+- Release packaging restores the previous archive if checksum promotion fails and retains recovery files if restoration also fails.
+- Release packaging preserves previous archives and checksums when archive or checksum creation fails.
+- Release packaging removes its temporary staging directory after success or failure.
+- Repository scans include legacy `.saggar/commands.md` catalogs in `agent_files`, alongside `.clip/commands.md`.
+
 ## [0.3.0] - 2026-09-27
 
 - `shelf search` now searches declared and machine-local relation explanations, returning both indexed endpoints for resolved relations.

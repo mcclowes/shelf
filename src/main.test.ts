@@ -1,9 +1,10 @@
-import { test } from 'node:test';
+import { test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import type { RelatedItem } from './relations.ts';
 
 const main = new URL('./main.ts', import.meta.url);
 
@@ -25,7 +26,7 @@ function repo(root: string, name: string, files: Record<string, string> = {}, re
   return dir;
 }
 
-function fixture(t: any) {
+function fixture(t: TestContext) {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), 'shelf-test-')));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const root = join(dir, 'code');
@@ -57,7 +58,7 @@ test('scan indexes local clones, merges GitHub metadata, and skips dependency an
   assert.deepEqual({ total: scanned.total, local: scanned.local, github_only: scanned.github_only, undescribed: scanned.undescribed }, { total: 4, local: 3, github_only: 1, undescribed: 2 });
 
   const listed = json('list');
-  assert.deepEqual(listed.items.map((item: any) => item.name), ['alpha', 'beta', 'delta', 'gamma']);
+  assert.deepEqual(listed.items.map((item: { name: string }) => item.name), ['alpha', 'beta', 'delta', 'gamma']);
   assert.ok(listed.scanned_at);
 
   const alpha = json('show', 'acme/alpha');
@@ -76,6 +77,23 @@ test('scan indexes local clones, merges GitHub metadata, and skips dependency an
   assert.equal(json('show', 'beta').path, undefined);
 });
 
+test('scan exposes modern and legacy command catalogs without executing them', t => {
+  const { dir, root, paths, json } = fixture(t);
+  const catalog = '# Commands\n\n- Unsafe fixture: `touch should-not-exist` #writes\n';
+  write(join(paths.alpha, '.saggar/commands.md'), catalog);
+  write(join(paths.gamma, '.clip/commands.md'), catalog);
+  write(join(paths.delta, '.clip/commands.md'), catalog);
+  write(join(paths.delta, '.saggar/commands.md'), catalog);
+
+  json('scan', '--root', root, '--no-github');
+
+  assert.deepEqual(json('show', 'alpha').agent_files, ['AGENTS.md', '.saggar/commands.md']);
+  assert.deepEqual(json('show', 'gamma').agent_files, ['.clip/commands.md']);
+  assert.deepEqual(json('show', 'delta').agent_files, ['.clip/commands.md', '.saggar/commands.md']);
+  assert.equal(existsSync(join(dir, 'should-not-exist')), false);
+  for (const path of Object.values(paths)) assert.equal(existsSync(join(path, 'should-not-exist')), false);
+});
+
 test('scan reuses saved roots and owners, and --no-github drops owners', t => {
   const { root, json } = fixture(t);
   json('scan', '--root', root, '--github', 'acme');
@@ -86,18 +104,142 @@ test('scan reuses saved roots and owners, and --no-github drops owners', t => {
   assert.equal(json('show', 'alpha').description, 'Local alpha readme.');
 });
 
+test('scan rejects a file root without changing the saved configuration or index', t => {
+  const { dir, root, run, json } = fixture(t);
+  json('scan', '--root', root, '--no-github');
+  const config = join(dir, 'config', 'config.json');
+  const index = join(dir, 'config', 'index.json');
+  const beforeConfig = readFileSync(config, 'utf8');
+  const beforeIndex = readFileSync(index, 'utf8');
+  const file = join(dir, 'not-a-directory.txt');
+  write(file, 'A file cannot be a scan root.\n');
+
+  const result = run('scan', '--root', file, '--no-github');
+
+  assert.equal(result.status, 1);
+  assert.equal(result.stdout, '');
+  const error = JSON.parse(result.stderr).error;
+  assert.equal(error.kind, 'invalid_request');
+  assert.equal(error.message, `Root is not a directory: ${file}`);
+  assert.equal(readFileSync(config, 'utf8'), beforeConfig);
+  assert.equal(readFileSync(index, 'utf8'), beforeIndex);
+});
+
+test('scan rejects an unreadable root without changing the saved configuration or index', t => {
+  if (!process.getuid || process.getuid() === 0) return t.skip('Requires a non-root Unix user for permission checks.');
+  const { dir, root, run, json } = fixture(t);
+  json('scan', '--root', root, '--no-github');
+  const config = join(dir, 'config', 'config.json');
+  const index = join(dir, 'config', 'index.json');
+  const beforeConfig = readFileSync(config, 'utf8');
+  const beforeIndex = readFileSync(index, 'utf8');
+  chmodSync(root, 0);
+  let result: ReturnType<typeof run>;
+  try {
+    result = run('scan', '--root', root, '--no-github');
+  } finally {
+    chmodSync(root, 0o700);
+  }
+
+  assert.equal(result.status, 1);
+  assert.equal(result.stdout, '');
+  const error = JSON.parse(result.stderr).error;
+  assert.equal(error.kind, 'invalid_request');
+  assert.equal(error.message, `Cannot read root: ${root}`);
+  assert.equal(readFileSync(config, 'utf8'), beforeConfig);
+  assert.equal(readFileSync(index, 'utf8'), beforeIndex);
+});
+
+for (const saved of [false, true]) {
+  test(`scan rejects file roots in ${saved ? 'saved configuration' : 'mixed explicit roots'} before writing state`, t => {
+    const { dir, root, run, json } = fixture(t);
+    json('scan', '--root', root, '--no-github');
+    const config = join(dir, 'config', 'config.json');
+    const index = join(dir, 'config', 'index.json');
+    const file = join(dir, 'not-a-directory.txt');
+    write(file, 'Not a directory.\n');
+    if (saved) {
+      const data = JSON.parse(readFileSync(config, 'utf8'));
+      write(config, JSON.stringify({ ...data, roots: [file] }));
+    }
+    const beforeConfig = readFileSync(config, 'utf8');
+    const beforeIndex = readFileSync(index, 'utf8');
+
+    const result = saved ? run('scan', '--no-github') : run('scan', '--root', root, '--root', file, '--no-github');
+
+    assert.equal(result.status, 1);
+    assert.equal(result.stdout, '');
+    assert.deepEqual(JSON.parse(result.stderr).error, { kind: 'invalid_request', message: `Root is not a directory: ${file}` });
+    assert.equal(readFileSync(config, 'utf8'), beforeConfig);
+    assert.equal(readFileSync(index, 'utf8'), beforeIndex);
+  });
+}
+
+test('missing roots keep the existing error and leave scan state untouched', t => {
+  const { dir, root, run, json } = fixture(t);
+  json('scan', '--root', root, '--no-github');
+  const config = join(dir, 'config', 'config.json');
+  const index = join(dir, 'config', 'index.json');
+  const beforeConfig = readFileSync(config, 'utf8');
+  const beforeIndex = readFileSync(index, 'utf8');
+  const missing = join(dir, 'missing');
+
+  const result = run('scan', '--root', missing, '--no-github');
+
+  assert.equal(result.status, 1);
+  assert.deepEqual(JSON.parse(result.stderr).error, { kind: 'invalid_request', message: `Root does not exist: ${missing}` });
+  assert.equal(readFileSync(config, 'utf8'), beforeConfig);
+  assert.equal(readFileSync(index, 'utf8'), beforeIndex);
+});
+
+test('scan accepts symlinked directory roots and rejects symlinked file roots', t => {
+  const { dir, root, run, json } = fixture(t);
+  const directoryLink = join(dir, 'directory-link');
+  symlinkSync(root, directoryLink, 'dir');
+  assert.equal(json('scan', '--root', directoryLink, '--no-github').local, 3);
+
+  const file = join(dir, 'not-a-directory.txt');
+  const fileLink = join(dir, 'file-link');
+  write(file, 'Not a directory.\n');
+  symlinkSync(file, fileLink, 'file');
+  const config = join(dir, 'config', 'config.json');
+  const index = join(dir, 'config', 'index.json');
+  const beforeConfig = readFileSync(config, 'utf8');
+  const beforeIndex = readFileSync(index, 'utf8');
+
+  const result = run('scan', '--root', fileLink, '--no-github');
+
+  assert.equal(result.status, 1);
+  assert.deepEqual(JSON.parse(result.stderr).error, { kind: 'invalid_request', message: `Root is not a directory: ${fileLink}` });
+  assert.equal(readFileSync(config, 'utf8'), beforeConfig);
+  assert.equal(readFileSync(index, 'utf8'), beforeIndex);
+});
+
+test('scan still skips unreadable nested directories', t => {
+  if (!process.getuid || process.getuid() === 0) return t.skip('Requires a non-root Unix user for permission checks.');
+  const { root, json } = fixture(t);
+  const nested = repo(root, 'unreadable');
+  chmodSync(nested, 0);
+  try {
+    assert.equal(json('scan', '--root', root, '--no-github').local, 3);
+    assert.deepEqual(json('list').items.map((item: { name: string }) => item.name), ['alpha', 'delta', 'gamma']);
+  } finally {
+    chmodSync(nested, 0o700);
+  }
+});
+
 test('search ranks by name and filters on every word', t => {
   const { root, json } = fixture(t);
   json('scan', '--root', root, '--github', 'acme');
-  assert.deepEqual(json('search', 'gamma').items.map((item: any) => item.name), ['gamma']);
-  assert.deepEqual(json('search', 'typescript').items.map((item: any) => item.name), ['alpha']);
+  assert.deepEqual(json('search', 'gamma').items.map((item: { name: string }) => item.name), ['gamma']);
+  assert.deepEqual(json('search', 'typescript').items.map((item: { name: string }) => item.name), ['alpha']);
   assert.equal(json('search', 'nothing', 'matches').total, 0);
 });
 
 test('describe overrides survive rescans and clear restores the scanned description', t => {
   const { root, run, json } = fixture(t);
   json('scan', '--root', root);
-  assert.deepEqual(json('list', '--undescribed').items.map((item: any) => item.name), ['delta']);
+  assert.deepEqual(json('list', '--undescribed').items.map((item: { name: string }) => item.name), ['delta']);
 
   const described = json('describe', 'delta', 'Delta\u0007  service');
   assert.equal(described.description, 'Delta service');
@@ -140,6 +282,66 @@ test('sync writes the skill once and refuses a directory it does not own', t => 
   assert.ok(!existsSync(join(other, 'shelf', '.shelf-owned')));
 });
 
+test('scan warns when a relation file is a directory while keeping repository results', t => {
+  const { root, paths, json } = fixture(t);
+  const relations = join(paths.gamma, '.shelf.json');
+  mkdirSync(relations);
+
+  const scanned = json('scan', '--root', root, '--no-github');
+  assert.equal(scanned.total, 3);
+  assert.equal(scanned.warnings?.length, 1);
+  assert.ok(scanned.warnings[0].includes(relations));
+  assert.match(scanned.warnings[0], /EISDIR/);
+  assert.deepEqual(json('list').items.map((item: { name: string }) => item.name), ['alpha', 'delta', 'gamma']);
+});
+
+test('scan warns for a dangling relation-file symlink instead of treating it as absent', t => {
+  const { dir, root, paths, json } = fixture(t);
+  const relations = join(paths.gamma, '.shelf.json');
+  symlinkSync(join(dir, 'missing-relations.json'), relations);
+
+  const scanned = json('scan', '--root', root, '--no-github');
+  assert.equal(scanned.total, 3);
+  assert.equal(scanned.warnings?.length, 1);
+  assert.ok(scanned.warnings[0].includes(relations));
+  assert.match(scanned.warnings[0], /ENOENT/);
+});
+
+test('scan warns for a permission-denied relation file without failing the scan', t => {
+  if (!process.getuid || process.getuid() === 0) return t.skip('Requires non-root Unix file permissions.');
+  const { root, paths, json } = fixture(t);
+  const relations = join(paths.gamma, '.shelf.json');
+  write(relations, JSON.stringify({ related: [{ repo: 'alpha' }] }));
+  chmodSync(relations, 0);
+  try {
+    const scanned = json('scan', '--root', root, '--no-github');
+    assert.equal(scanned.total, 3);
+    assert.equal(scanned.warnings?.length, 1);
+    assert.ok(scanned.warnings[0].includes(relations));
+    assert.match(scanned.warnings[0], /EACCES/);
+  } finally {
+    chmodSync(relations, 0o600);
+  }
+});
+
+test('scan follows readable symlinked relation files without warnings', t => {
+  const { dir, root, paths, json } = fixture(t);
+  const target = join(dir, 'shared-relations.json');
+  write(target, JSON.stringify({ related: [{ repo: 'alpha', relation: 'Shared fixture relation' }] }));
+  symlinkSync(target, join(paths.gamma, '.shelf.json'));
+
+  const scanned = json('scan', '--root', root, '--no-github');
+  assert.equal(scanned.warnings, undefined);
+  assert.equal(json('related', 'gamma').items[0].name, 'alpha');
+});
+
+test('scan stays quiet when optional relation files are genuinely absent', t => {
+  const { root, json } = fixture(t);
+  const scanned = json('scan', '--root', root, '--no-github');
+  assert.equal(scanned.warnings, undefined);
+  assert.equal(scanned.total, 3);
+});
+
 test('a repository declares related repositories in .shelf.json, visible from both ends', t => {
   const { root, paths, json } = fixture(t);
   write(join(paths.gamma, '.shelf.json'), JSON.stringify({ related: [
@@ -154,7 +356,7 @@ test('a repository declares related repositories in .shelf.json, visible from bo
   assert.equal(scanned.warnings.length, 2);
 
   const gamma = json('related', 'gamma');
-  assert.deepEqual(gamma.items.map((item: any) => [item.ref, item.name, item.direction, item.source, item.relation]), [
+  assert.deepEqual(gamma.items.map((item: RelatedItem) => [item.ref, item.name, item.direction, item.source, item.relation]), [
     ['acme/alpha', 'alpha', 'outgoing', 'repo', 'Consumes the alpha API'],
     ['https://github.com/acme/beta.git', 'beta', 'outgoing', 'repo', null],
     ['../../delta', 'delta', 'outgoing', 'repo', 'Shares a database schema'],
@@ -163,7 +365,7 @@ test('a repository declares related repositories in .shelf.json, visible from bo
   assert.equal(gamma.items[2].path, paths.delta);
 
   const alpha = json('related', 'alpha');
-  assert.deepEqual(alpha.items.map((item: any) => [item.name, item.direction, item.relation]), [['gamma', 'incoming', 'Consumes the alpha API']]);
+  assert.deepEqual(alpha.items.map((item: RelatedItem) => [item.name, item.direction, item.relation]), [['gamma', 'incoming', 'Consumes the alpha API']]);
   assert.equal(json('show', 'alpha').related.length, 1);
 });
 
@@ -175,7 +377,7 @@ test('relate records machine-local relations that survive rescans and win over r
   assert.deepEqual(json('relate', 'gamma', 'alpha', 'Mine'), { related: paths.gamma, to: paths.alpha, relation: 'Mine' });
   json('relate', 'delta', 'gamma');
   json('scan');
-  assert.deepEqual(json('related', 'gamma').items.map((item: any) => [item.name, item.direction, item.source, item.relation]), [
+  assert.deepEqual(json('related', 'gamma').items.map((item: RelatedItem) => [item.name, item.direction, item.source, item.relation]), [
     ['alpha', 'outgoing', 'local', 'Mine'],
     ['delta', 'incoming', 'local', null],
   ]);

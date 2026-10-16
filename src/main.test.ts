@@ -104,6 +104,38 @@ test('scan reuses saved roots and owners, and --no-github drops owners', t => {
   assert.equal(json('show', 'alpha').description, 'Local alpha readme.');
 });
 
+for (const depth of ['', '   ', '\t\n', '\u00a0']) {
+  test(`scan rejects blank depth ${JSON.stringify(depth)} without replacing saved state`, t => {
+    const { dir, root, run, json } = fixture(t);
+    assert.equal(json('scan', '--root', root, '--no-github').local, 3);
+    const config = join(dir, 'config', 'config.json');
+    const index = join(dir, 'config', 'index.json');
+    const beforeConfig = readFileSync(config);
+    const beforeIndex = readFileSync(index);
+    const otherRoot = join(dir, 'other-root');
+    mkdirSync(otherRoot);
+
+    const result = run('scan', '--root', otherRoot, '--github', 'other-owner', '--depth', depth);
+
+    assert.equal(result.status, 1);
+    assert.equal(result.stdout, '');
+    assert.deepEqual(JSON.parse(result.stderr).error, {
+      kind: 'invalid_request', message: '--depth must be an integer from 0 to 12.',
+    });
+    assert.deepEqual(readFileSync(config), beforeConfig);
+    assert.deepEqual(readFileSync(index), beforeIndex);
+  });
+}
+
+test('scan keeps the default depth and accepts explicit zero and maximum depth', t => {
+  const { root, json } = fixture(t);
+  const omitted = json('scan', '--root', root, '--no-github').local;
+  const zero = json('scan', '--depth', '0', '--no-github').local;
+  const maximum = json('scan', '--depth', '12', '--no-github').local;
+
+  assert.deepEqual({ omitted, zero, maximum }, { omitted: 3, zero: 0, maximum: 4 });
+});
+
 test('scan rejects a file root without changing the saved configuration or index', t => {
   const { dir, root, run, json } = fixture(t);
   json('scan', '--root', root, '--no-github');

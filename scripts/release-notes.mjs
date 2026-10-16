@@ -6,4 +6,9 @@ if (!section) {
   console.error(`CHANGELOG.md has no section for ${version}`);
   process.exit(1);
 }
-console.log(section.slice(section.indexOf('\n') + 1).trim());
+const notes = section.split('\n').slice(1).join('\n').trim();
+if (!notes) {
+  console.error(`CHANGELOG.md section for ${version} has no release notes`);
+  process.exit(1);
+}
+console.log(notes);

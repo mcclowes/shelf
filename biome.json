@@ -1,7 +1,7 @@
 {
   "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
   "vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
-  "files": { "includes": ["src/**", "scripts/package-release.mjs", "scripts/check-version.mjs", "scripts/*.test.ts"] },
+  "files": { "includes": ["src/**", "scripts/package-release.mjs", "scripts/check-version.mjs", "scripts/release-notes.mjs", "scripts/*.test.ts"] },
   "formatter": { "enabled": false },
   "assist": { "enabled": false },
   "linter": {

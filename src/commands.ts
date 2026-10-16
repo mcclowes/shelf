@@ -55,7 +55,7 @@ function scanTargets(options: Options, config: Config) {
   const roots = resolveRoots(options.root, config.roots);
   const github = options['no-github'] ? [] : (options.github?.map(validOwner) ?? config.github);
   const depth = Number(options.depth ?? defaultDepth);
-  if (!Number.isInteger(depth) || depth < 0 || depth > maxDepth) throw new Error(`--depth must be an integer from 0 to ${maxDepth}.`);
+  if (options.depth?.trim() === '' || !Number.isInteger(depth) || depth < 0 || depth > maxDepth) throw new Error(`--depth must be an integer from 0 to ${maxDepth}.`);
   return { roots, github, depth };
 }
 

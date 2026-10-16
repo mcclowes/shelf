@@ -1,6 +1,6 @@
 import { test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -266,6 +266,81 @@ test('search ranks by name and filters on every word', t => {
   assert.deepEqual(json('search', 'gamma').items.map((item: { name: string }) => item.name), ['gamma']);
   assert.deepEqual(json('search', 'typescript').items.map((item: { name: string }) => item.name), ['alpha']);
   assert.equal(json('search', 'nothing', 'matches').total, 0);
+});
+
+test('describe preserves restricted configuration and index permissions while updating content', t => {
+  const { dir, root, paths, json } = fixture(t);
+  json('scan', '--root', root, '--no-github');
+  const config = join(dir, 'config', 'config.json');
+  const index = join(dir, 'config', 'index.json');
+  chmodSync(config, 0o600);
+  chmodSync(index, 0o640);
+
+  json('describe', 'delta', 'Updated description');
+
+  assert.deepEqual({
+    configMode: statSync(config).mode & 0o777,
+    indexMode: statSync(index).mode & 0o777,
+    override: JSON.parse(readFileSync(config, 'utf8')).overrides[paths.delta],
+    description: json('show', 'delta').description,
+  }, { configMode: 0o600, indexMode: 0o640, override: 'Updated description', description: 'Updated description' });
+});
+
+test('scan preserves existing modes and new state files follow the process umask', t => {
+  const { dir, root, json } = fixture(t);
+  json('scan', '--root', root, '--no-github');
+  const config = join(dir, 'config', 'config.json');
+  const index = join(dir, 'config', 'index.json');
+  const newMode = 0o666 & ~process.umask();
+  assert.deepEqual([statSync(config).mode & 0o777, statSync(index).mode & 0o777], [newMode, newMode]);
+  chmodSync(config, 0o640);
+  chmodSync(index, 0o600);
+  const otherRoot = join(dir, 'other-root');
+  const added = repo(otherRoot, 'epsilon');
+
+  assert.equal(json('scan', '--root', otherRoot, '--no-github').local, 1);
+
+  assert.deepEqual({
+    configMode: statSync(config).mode & 0o777,
+    indexMode: statSync(index).mode & 0o777,
+    roots: JSON.parse(readFileSync(config, 'utf8')).roots,
+    indexed: json('show', 'epsilon').path,
+  }, { configMode: 0o640, indexMode: 0o600, roots: [otherRoot], indexed: added });
+});
+
+test('a restrictive child umask affects new files but preserves existing permissions on replacement', t => {
+  const { dir, root, paths } = fixture(t);
+  const config = join(dir, 'config', 'config.json');
+  const index = join(dir, 'config', 'index.json');
+  const preload = join(dir, 'umask.mjs');
+  write(preload, 'process.umask(0o077);\n');
+  const parentUmask = process.umask();
+  const run = (...args: string[]) => {
+    const result = spawnSync(process.execPath, ['--import', preload, main.pathname, ...args], {
+      cwd: dir, encoding: 'utf8', timeout: 10000,
+      env: { ...process.env, SHELF_HOME: join(dir, 'config'), PATH: `${join(dir, 'bin')}:${process.env.PATH}` },
+    });
+    assert.equal(result.status, 0, result.stderr);
+    return JSON.parse(result.stdout);
+  };
+  run('scan', '--root', root, '--no-github');
+  assert.deepEqual([statSync(config).mode & 0o777, statSync(index).mode & 0o777], [0o600, 0o600]);
+  chmodSync(config, 0o640);
+  chmodSync(index, 0o640);
+
+  run('describe', 'delta', 'Description under restrictive umask');
+  assert.deepEqual([statSync(config).mode & 0o777, statSync(index).mode & 0o777], [0o640, 0o640]);
+  run('scan', '--no-github');
+  assert.deepEqual({
+    configMode: statSync(config).mode & 0o777,
+    indexMode: statSync(index).mode & 0o777,
+    override: JSON.parse(readFileSync(config, 'utf8')).overrides[paths.delta],
+    description: run('show', 'delta').description,
+    parentUmask: process.umask(),
+  }, {
+    configMode: 0o640, indexMode: 0o640, override: 'Description under restrictive umask',
+    description: 'Description under restrictive umask', parentUmask,
+  });
 });
 
 test('describe overrides survive rescans and clear restores the scanned description', t => {

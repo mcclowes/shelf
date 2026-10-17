@@ -71,6 +71,7 @@ The configuration and the index live in `~/.config/shelf`. Set `SHELF_HOME` to u
 - `--output auto|json|text` sets the output format. Output defaults to JSON when piped.
 - List results use an `items` envelope with `total`, `truncated`, and `scanned_at`. `--limit` defaults to 100.
 - Failures exit with status 1 and write a structured error to stderr.
+- Command-specific flags are accepted only by the command that advertises them. Flags belonging to another command fail before scans or saved-state access. Global flags remain available to every command.
 - `shelf schema` describes the CLI offline.
 
 ## Development

@@ -481,6 +481,91 @@ test('describe overrides survive rescans and clear restores the scanned descript
   assert.equal(run('describe', 'delta').status, 1);
 });
 
+test('scan rejects a foreign flag before creating saved state', t => {
+  const { dir, root, run } = fixture(t);
+
+  const result = run('scan', '--root', root, '--no-github', '--clear');
+
+  assert.equal(result.status, 1);
+  assert.equal(result.stdout, '');
+  assert.equal(JSON.parse(result.stderr).error.kind, 'invalid_request');
+  assert.match(JSON.parse(result.stderr).error.message, /scan.*--clear/);
+  assert.equal(existsSync(join(dir, 'config')), false);
+});
+
+for (const name of ['scan', 'list', 'search', 'show', 'describe', 'related', 'relate', 'sync', 'schema', 'capabilities']) {
+  test(`${name} rejects foreign flags without changing saved descriptions or relations`, t => {
+    const { dir, root, run, json } = fixture(t);
+    json('scan', '--root', root, '--no-github');
+    json('describe', 'delta', 'Keep this description');
+    json('relate', 'gamma', 'alpha', 'Keep this relation');
+    const home = join(dir, 'config');
+    const files = ['config.json', 'index.json'].map(file => join(home, file));
+    chmodSync(files[0]!, 0o640);
+    chmodSync(files[1]!, 0o600);
+    const state = () => files.map(file => ({ bytes: readFileSync(file), mode: statSync(file).mode, modified: statSync(file).mtimeMs }));
+    const before = state();
+    const entries = readdirSync(home).sort();
+    const githubCall = join(dir, 'github-called');
+    write(join(dir, 'bin', 'gh'), `#!/bin/sh\ntouch "${githubCall}"\ncat "${join(dir, 'gh.json')}"\n`);
+    const skills = join(dir, 'new-skills');
+    const args: Record<string, string[]> = {
+      scan: ['--root', root, '--github', 'acme', '--clear'],
+      list: ['--root', root],
+      search: ['alpha', '--undescribed'],
+      show: ['alpha', '--depth', '1'],
+      describe: ['delta', 'Unexpected change', '--github', 'acme'],
+      related: ['alpha', '--clear'],
+      relate: ['gamma', 'alpha', 'Unexpected relation', '--no-github'],
+      sync: ['--skills-dir', skills, '--undescribed'],
+      schema: ['--skills-dir', skills],
+      capabilities: ['--clear'],
+    };
+
+    const rejected = run(name, ...args[name]!);
+
+    assert.equal(rejected.status, 1, rejected.stdout);
+    assert.equal(rejected.stdout, '');
+    assert.equal(JSON.parse(rejected.stderr).error.kind, 'invalid_request');
+    assert.match(JSON.parse(rejected.stderr).error.message, new RegExp(`${name}.*--`));
+    assert.deepEqual(state(), before);
+    assert.deepEqual(readdirSync(home).sort(), entries);
+    assert.equal(existsSync(githubCall), false);
+    assert.equal(existsSync(skills), false);
+    assert.equal(json('show', 'delta').description, 'Keep this description');
+    assert.equal(json('related', 'gamma').items[0].relation, 'Keep this relation');
+  });
+}
+
+test('foreign flags are rejected before damaged saved state is read', t => {
+  const { dir, root, run } = fixture(t);
+  const files = ['config.json', 'index.json'].map(file => join(dir, 'config', file));
+  for (const file of files) write(file, '{ damaged state');
+  const before = files.map(file => readFileSync(file));
+
+  for (const args of [['scan', '--root', root, '--clear'], ['list', '--root', root]]) {
+    const result = run(...args);
+    assert.equal(result.status, 1);
+    assert.equal(JSON.parse(result.stderr).error.kind, 'invalid_request');
+    assert.match(JSON.parse(result.stderr).error.message, /does not accept --/);
+  }
+
+  assert.deepEqual(files.map(file => readFileSync(file)), before);
+});
+
+test('help, version, and valid global flags retain their dispatch behavior', t => {
+  const { dir, root, json } = fixture(t);
+  assert.equal(json('scan', '--clear', '--help').command.name, 'scan');
+  assert.equal(json('help', 'scan', '--clear').command.name, 'scan');
+  assert.equal(json('--help', '--clear').name, 'shelf');
+  assert.equal(json('scan', '--clear', '--version').version, '0.3.0');
+  assert.equal(json('--version', '--root', root).name, 'shelf');
+  assert.equal(json('schema', '-o', 'json', '--limit', '1').name, 'shelf');
+  assert.equal(existsSync(join(dir, 'config')), false);
+  assert.equal(json('scan', '--root', root, '--no-github', '--depth', '4', '--output', 'json', '--limit', '1').local, 3);
+  assert.equal(json('list', '--undescribed', '--limit', '1').items.length, 1);
+});
+
 test('ambiguous and unknown references fail with structured errors', t => {
   const { dir, root, run, json } = fixture(t);
   repo(join(root, 'other'), 'gamma');

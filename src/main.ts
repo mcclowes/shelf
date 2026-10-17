@@ -19,7 +19,7 @@ try {
   const { positionals, options, format, limit } = parseCli();
   if (options.version) print({ name: 'shelf', version: contract.version }, format, renderVersion);
   else {
-    const { command, args } = resolveCommand(options.help ? ['help', ...positionals.slice(0, 1)] : positionals);
+    const { command, args } = resolveCommand(options.help ? ['help', ...positionals.slice(0, 1)] : positionals, options);
     print(await command.run({ args, options, limit }), format, command.text);
   }
 } catch (error) {

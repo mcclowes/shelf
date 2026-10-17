@@ -169,10 +169,16 @@ const commands: Record<string, Command> = {
   sync: command({ minArgs: 0, maxArgs: 0, run: ({ options }) => syncSkill(options['skills-dir'] ?? defaultSkillsDir), text: renderSync }),
 };
 
-export function resolveCommand(positionals: string[]): { command: Command; args: string[] } {
+export function resolveCommand(positionals: string[], options: Options): { command: Command; args: string[] } {
   const [name = 'help', ...args] = positionals;
   const command = commands[name];
   if (!command) throw new Error(`Unknown command: ${name}. Run shelf --help.`);
+  const advertised = contract.commands.find(entry => entry.name === name);
+  if (advertised) {
+    const flags = new Set([...contract.global_args, ...advertised.args].map(arg => arg.name));
+    const foreign = Object.keys(options).find(flag => !flags.has(`--${flag}`));
+    if (foreign) throw new Error(`${name} does not accept --${foreign}. Run shelf ${name} --help.`);
+  }
   if (args.length < command.minArgs || args.length > command.maxArgs) throw new Error(`Wrong number of arguments for ${name}. Run shelf --help.`);
   return { command, args };
 }

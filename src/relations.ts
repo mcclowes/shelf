@@ -5,7 +5,7 @@
  *   - ./store.ts - Stores declared relations on index entries and local relations in the configuration.
  * ---
  */
-import { lstatSync, readFileSync } from 'node:fs';
+import { closeSync, constants, fstatSync, lstatSync, openSync, readFileSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
 import { clean } from './describe.ts';
 import { findRepos, summary } from './repos.ts';
@@ -19,7 +19,13 @@ export function readDeclaredRelations(path: string): { related?: DeclaredRelatio
   const file = join(path, relationsFile);
   let text: string;
   try {
-    text = readFileSync(file, 'utf8');
+    const descriptor = openSync(file, constants.O_RDONLY | constants.O_NONBLOCK);
+    try {
+      if (!fstatSync(descriptor).isFile()) return { warnings: [`${file} is not a regular file.`] };
+      text = readFileSync(descriptor, 'utf8');
+    } finally {
+      closeSync(descriptor);
+    }
   } catch (error) {
     if (asObject(error)?.code === 'ENOENT' && isAbsent(file)) return { warnings: [] };
     return { warnings: [`${file} could not be read: ${error instanceof Error ? error.message : String(error)}`] };

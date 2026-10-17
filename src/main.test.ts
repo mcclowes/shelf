@@ -1,6 +1,6 @@
 import { test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync, statSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -795,6 +795,39 @@ test('sync writes the skill once and refuses a directory it does not own', t => 
   assert.ok(!existsSync(join(other, 'shelf', '.shelf-owned')));
 });
 
+for (const linked of [false, true]) {
+  test(`scan warns for a ${linked ? 'symlinked' : 'direct'} FIFO relation file without blocking or losing other relations`, t => {
+    if (process.platform === 'win32') return t.skip('Requires POSIX named pipes.');
+    const { dir, root, paths, json } = fixture(t);
+    const relations = join(paths.gamma, '.shelf.json');
+    const target = linked ? join(dir, 'relations.fifo') : relations;
+    const created = spawnSync('mkfifo', [target], { encoding: 'utf8' });
+    assert.equal(created.status, 0, created.stderr);
+    if (linked) symlinkSync(target, relations);
+    const before = lstatSync(target);
+    write(join(paths.alpha, '.shelf.json'), JSON.stringify({ related: [{ repo: 'delta', relation: 'Keep this relation' }] }));
+
+    const scanned = spawnSync(process.execPath, [main.pathname, 'scan', '--root', root, '--no-github'], {
+      cwd: dir, encoding: 'utf8', timeout: 5000, killSignal: 'SIGKILL',
+      env: { ...process.env, SHELF_HOME: join(dir, 'config'), PATH: `${join(dir, 'bin')}:${process.env.PATH}` },
+    });
+    assert.equal(scanned.error, undefined);
+    assert.equal(scanned.status, 0, scanned.stderr);
+    const result = JSON.parse(scanned.stdout);
+    assert.equal(result.total, 3);
+    assert.equal(result.warnings?.length, 1);
+    assert.ok(result.warnings[0].includes(relations));
+    assert.match(result.warnings[0], /not a regular file/);
+    assert.deepEqual(json('list').items.map((item: { name: string }) => item.name), ['alpha', 'delta', 'gamma']);
+    assert.deepEqual(json('related', 'alpha').items.map((item: RelatedItem) => [item.name, item.relation]), [['delta', 'Keep this relation']]);
+    const after = lstatSync(target);
+    assert.ok(after.isFIFO());
+    assert.equal(after.ino, before.ino);
+    assert.equal(after.mode, before.mode);
+    if (linked) assert.equal(readlinkSync(relations), target);
+  });
+}
+
 test('scan warns when a relation file is a directory while keeping repository results', t => {
   const { root, paths, json } = fixture(t);
   const relations = join(paths.gamma, '.shelf.json');
@@ -804,7 +837,7 @@ test('scan warns when a relation file is a directory while keeping repository re
   assert.equal(scanned.total, 3);
   assert.equal(scanned.warnings?.length, 1);
   assert.ok(scanned.warnings[0].includes(relations));
-  assert.match(scanned.warnings[0], /EISDIR/);
+  assert.match(scanned.warnings[0], /not a regular file/);
   assert.deepEqual(json('list').items.map((item: { name: string }) => item.name), ['alpha', 'delta', 'gamma']);
 });
 

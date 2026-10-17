@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 
+- README discovery skips directories and broken links while preserving links to regular files and sorted precedence.
 - Description reads stop at the existing 256 KiB metadata limit before loading file contents, so oversized files retain their description precedence.
 - Commands reject flags belonging to other commands before reading or changing saved state or starting a scan.
 - Skill sync refuses linked or nonregular Shelf directories, ownership markers, and skill files before reading or writing through them.

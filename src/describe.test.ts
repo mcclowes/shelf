@@ -1,6 +1,6 @@
 import { test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, truncateSync, writeFileSync } from 'node:fs';
+import { lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -15,6 +15,55 @@ function metadataFixture(t: TestContext): string {
 }
 
 const metadataReadLimit = 256 * 1024;
+
+test('a README directory does not mask a regular README.md description', t => {
+  const root = metadataFixture(t);
+  mkdirSync(join(root, 'README'));
+  writeFileSync(join(root, 'README.md'), 'A repository browser.\n');
+  writeFileSync(join(root, 'AGENTS.md'), 'Agent fallback.\n');
+
+  assert.deepEqual(describeLocal(root), { description: 'A repository browser.', description_source: 'readme' });
+});
+
+for (const kind of ['directory link', 'dangling link', 'cyclic link']) {
+  test(`a README ${kind} does not mask a regular README.md`, t => {
+    const root = metadataFixture(t);
+    const candidate = join(root, 'README');
+    const target = kind === 'cyclic link' ? candidate : join(root, 'target');
+    if (kind === 'directory link') {
+      mkdirSync(target);
+      writeFileSync(join(target, 'sentinel'), 'Manual target.\n');
+    }
+    symlinkSync(target, candidate);
+    writeFileSync(join(root, 'README.md'), 'A repository browser.\n');
+    writeFileSync(join(root, 'AGENTS.md'), 'Agent fallback.\n');
+    const before = lstatSync(candidate);
+
+    assert.deepEqual(describeLocal(root), { description: 'A repository browser.', description_source: 'readme' });
+
+    assert.equal(readlinkSync(candidate), target);
+    assert.equal(lstatSync(candidate).ino, before.ino);
+    assert.equal(lstatSync(candidate).mode, before.mode);
+    if (kind === 'directory link') assert.equal(readFileSync(join(target, 'sentinel'), 'utf8'), 'Manual target.\n');
+    rmSync(join(root, 'README.md'));
+    assert.deepEqual(describeLocal(root), { description: 'Agent fallback.', description_source: 'agents' });
+  });
+}
+
+test('regular README links preserve sorted precedence and manifest descriptions still win', t => {
+  const root = metadataFixture(t);
+  const target = join(root, 'manual-target');
+  const content = 'The first sorted README.\n';
+  writeFileSync(target, content);
+  symlinkSync(target, join(root, 'README'));
+  writeFileSync(join(root, 'README.md'), 'The second README.\n');
+  writeFileSync(join(root, 'AGENTS.md'), 'Agent fallback.\n');
+  assert.deepEqual(describeLocal(root), { description: 'The first sorted README.', description_source: 'readme' });
+  writeFileSync(join(root, 'package.json'), JSON.stringify({ description: 'Manifest description.' }));
+  assert.deepEqual(describeLocal(root), { description: 'Manifest description.', description_source: 'manifest' });
+  assert.equal(readFileSync(target, 'utf8'), content);
+  assert.equal(readlinkSync(join(root, 'README')), target);
+});
 
 test('oversized sparse README metadata retains precedence over agent guidance', t => {
   const root = metadataFixture(t);

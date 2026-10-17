@@ -91,6 +91,28 @@ test('scan, show, and search retain a sparse README description with private sta
   assert.equal(statSync(join(paths.alpha, 'README.md')).size, 2 ** 31);
 });
 
+test('scan, show, and search select regular READMEs past non-file candidates', t => {
+  const { dir, root, paths, json } = fixture(t);
+  mkdirSync(join(paths.alpha, 'README'));
+  write(join(paths.alpha, 'README.md'), 'A selected repository browser.\n');
+  write(join(paths.alpha, 'AGENTS.md'), 'Agent fallback.\n');
+  const dangling = join(paths.delta, 'README');
+  const missing = join(dir, 'missing-readme');
+  symlinkSync(missing, dangling);
+  write(join(paths.delta, 'README.md'), 'A selected relation explorer.\n');
+  write(join(paths.delta, 'AGENTS.md'), 'Agent fallback.\n');
+
+  assert.equal(json('scan', '--root', root, '--no-github').local, 3);
+  for (const [name, description] of [['alpha', 'A selected repository browser.'], ['delta', 'A selected relation explorer.']] as const) {
+    const shown = json('show', name);
+    assert.equal(shown.description, description);
+    assert.equal(shown.description_source, 'readme');
+  }
+  assert.deepEqual(json('search', 'selected').items.map((item: { name: string }) => item.name), ['alpha', 'delta']);
+  assert.equal(statSync(join(paths.alpha, 'README')).isDirectory(), true);
+  assert.equal(existsSync(missing), false);
+});
+
 test('scan exposes modern and legacy command catalogs without executing them', t => {
   const { dir, root, paths, json } = fixture(t);
   const catalog = '# Commands\n\n- Unsafe fixture: `touch should-not-exist` #writes\n';

@@ -16,6 +16,51 @@ function metadataFixture(t: TestContext): string {
 
 const metadataReadLimit = 256 * 1024;
 
+for (const name of ['package.json', 'Cargo.toml', 'pyproject.toml', 'AGENTS.md', 'CLAUDE.md']) {
+  test(`a FIFO ${name} does not block description fallback`, t => {
+    if (process.platform === 'win32') return t.skip('Requires POSIX named pipes.');
+    const root = metadataFixture(t);
+    const file = join(root, name);
+    const created = spawnSync('mkfifo', [file], { encoding: 'utf8' });
+    assert.equal(created.status, 0, created.stderr);
+    const before = lstatSync(file);
+    const manifest = ['package.json', 'Cargo.toml', 'pyproject.toml'].includes(name);
+    if (manifest) writeFileSync(join(root, 'README.md'), 'README fallback.\n');
+    if (name === 'AGENTS.md') writeFileSync(join(root, 'CLAUDE.md'), 'Agent fallback.\n');
+    const result = spawnSync(process.execPath, ['--input-type=module', '-e', `
+      import { describeLocal } from ${JSON.stringify(new URL('./describe.ts', import.meta.url).href)};
+      console.log(JSON.stringify(describeLocal(${JSON.stringify(root)})));
+    `], { encoding: 'utf8', timeout: 5000, killSignal: 'SIGKILL', env: { ...process.env, SHELF_HOME: join(root, 'config') } });
+
+    assert.equal(result.error, undefined);
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(JSON.parse(result.stdout), manifest
+      ? { description: 'README fallback.', description_source: 'readme' }
+      : name === 'AGENTS.md' ? { description: 'Agent fallback.', description_source: 'agents' } : {});
+    const after = lstatSync(file);
+    assert.ok(after.isFIFO());
+    assert.equal(after.ino, before.ino);
+    assert.equal(after.mode, before.mode);
+  });
+}
+
+test('a regular manifest symlink retains its description and precedence', t => {
+  const root = metadataFixture(t);
+  const target = join(root, 'shared-package.json');
+  const file = join(root, 'package.json');
+  const content = JSON.stringify({ description: 'Manifest description.' });
+  writeFileSync(target, content);
+  symlinkSync(target, file);
+  writeFileSync(join(root, 'README.md'), 'README fallback.\n');
+  const before = lstatSync(file);
+
+  assert.deepEqual(describeLocal(root), { description: 'Manifest description.', description_source: 'manifest' });
+  assert.equal(readFileSync(target, 'utf8'), content);
+  assert.equal(readlinkSync(file), target);
+  assert.equal(lstatSync(file).ino, before.ino);
+  assert.equal(lstatSync(file).mode, before.mode);
+});
+
 test('a README directory does not mask a regular README.md description', t => {
   const root = metadataFixture(t);
   mkdirSync(join(root, 'README'));

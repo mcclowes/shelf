@@ -3,7 +3,7 @@
  * purpose: Derive a repository description offline from its manifests, README, or agent files, without running anything.
  * ---
  */
-import { closeSync, existsSync, openSync, readdirSync, readSync, statSync } from 'node:fs';
+import { closeSync, constants, existsSync, fstatSync, openSync, readdirSync, readSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import type { DescriptionSource } from './store.ts';
 
@@ -60,8 +60,9 @@ function readmeFile(path: string): string | undefined {
 
 function readText(file: string): string | undefined {
   try {
-    const descriptor = openSync(file, 'r');
+    const descriptor = openSync(file, constants.O_RDONLY | constants.O_NONBLOCK);
     try {
+      if (!fstatSync(descriptor).isFile()) return undefined;
       const buffer = Buffer.alloc(maxReadBytes);
       let length = 0;
       while (length < buffer.length) {

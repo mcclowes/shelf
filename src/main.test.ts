@@ -1,6 +1,6 @@
 import { test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, truncateSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -75,6 +75,20 @@ test('scan indexes local clones, merges GitHub metadata, and skips dependency an
   assert.deepEqual(gamma.manifests, ['package.json']);
 
   assert.equal(json('show', 'beta').path, undefined);
+});
+
+test('scan, show, and search retain a sparse README description with private state', t => {
+  const { root, paths, json } = fixture(t);
+  write(join(paths.alpha, 'README.md'), '# Alpha\n\nA sparse repository browser.\n\n');
+  truncateSync(join(paths.alpha, 'README.md'), 2 ** 31);
+  write(join(paths.alpha, 'AGENTS.md'), 'Fallback guidance.\n');
+
+  assert.equal(json('scan', '--root', root, '--no-github').local, 3);
+  const described = json('show', 'alpha');
+  assert.equal(described.description, 'A sparse repository browser.');
+  assert.equal(described.description_source, 'readme');
+  assert.deepEqual(json('search', 'sparse browser').items.map((item: { name: string }) => item.name), ['alpha']);
+  assert.equal(statSync(join(paths.alpha, 'README.md')).size, 2 ** 31);
 });
 
 test('scan exposes modern and legacy command catalogs without executing them', t => {

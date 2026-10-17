@@ -3,7 +3,7 @@
  * purpose: Find Git repositories under configured roots with a bounded walk, and read their metadata from .git files directly.
  * ---
  */
-import { readdirSync, readFileSync, statSync, type Dirent } from 'node:fs';
+import { closeSync, constants, fstatSync, openSync, readdirSync, readFileSync, statSync, type Dirent } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { agentFileNames, describeLocal, manifestNames, presentFiles } from './describe.ts';
 import type { Repo } from './store.ts';
@@ -91,7 +91,12 @@ function lastActivity(git: string): string | undefined {
 
 function readOptional(file: string): string | undefined {
   try {
-    return readFileSync(file, 'utf8');
+    const descriptor = openSync(file, constants.O_RDONLY | constants.O_NONBLOCK);
+    try {
+      return fstatSync(descriptor).isFile() ? readFileSync(descriptor, 'utf8') : undefined;
+    } finally {
+      closeSync(descriptor);
+    }
   } catch {
     return undefined;
   }

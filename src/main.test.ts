@@ -77,6 +77,106 @@ test('scan indexes local clones, merges GitHub metadata, and skips dependency an
   assert.equal(json('show', 'beta').path, undefined);
 });
 
+for (const name of ['config', 'HEAD']) {
+  for (const linked of [false, true]) {
+    test(`scan skips ${linked ? 'symlinked' : 'direct'} FIFO Git ${name} without losing repositories`, t => {
+      if (process.platform === 'win32') return t.skip('Requires POSIX named pipes.');
+      const { dir, root, paths, json } = fixture(t);
+      const file = join(paths.alpha, '.git', name);
+      rmSync(file);
+      const target = linked ? join(dir, `git-${name}.fifo`) : file;
+      const created = spawnSync('mkfifo', [target], { encoding: 'utf8' });
+      assert.equal(created.status, 0, created.stderr);
+      if (linked) symlinkSync(target, file);
+      const before = lstatSync(target);
+
+      const result = spawnSync(process.execPath, [main.pathname, 'scan', '--root', root, '--no-github'], {
+        cwd: dir, encoding: 'utf8', timeout: 5000, killSignal: 'SIGKILL',
+        env: { ...process.env, SHELF_HOME: join(dir, 'config'), PATH: `${join(dir, 'bin')}:${process.env.PATH}` },
+      });
+      assert.equal(result.error, undefined);
+      assert.equal(result.status, 0, result.stderr);
+      const scanned = JSON.parse(result.stdout);
+      assert.equal(scanned.total, 3);
+      assert.equal(scanned.warnings, undefined);
+      assert.deepEqual(json('list').items.map((item: { name: string }) => item.name), ['alpha', 'delta', 'gamma']);
+      const alpha = json('show', 'alpha');
+      assert.equal(alpha.description, 'Local alpha readme.');
+      assert.equal(alpha.remote, name === 'config' ? undefined : 'github.com/acme/alpha');
+      assert.equal(alpha.branch, name === 'HEAD' ? undefined : 'main');
+      const after = lstatSync(target);
+      assert.ok(after.isFIFO());
+      assert.equal(after.ino, before.ino);
+      assert.equal(after.mode, before.mode);
+      if (linked) assert.equal(readlinkSync(file), target);
+    });
+  }
+}
+
+for (const name of ['config', 'HEAD']) {
+  for (const kind of ['absent', 'directory', 'dangling link', 'regular link']) {
+    test(`scan handles ${kind} Git ${name} while preserving other metadata`, t => {
+      const { dir, root, paths, json } = fixture(t);
+      const file = join(paths.alpha, '.git', name);
+      const content = readFileSync(file, 'utf8');
+      const target = join(dir, `git-${name}`);
+      rmSync(file);
+      if (kind === 'directory') mkdirSync(file);
+      if (kind === 'regular link') writeFileSync(target, content);
+      if (kind.endsWith('link')) symlinkSync(target, file);
+      const before = lstatSync(file, { throwIfNoEntry: false });
+
+      const scanned = json('scan', '--root', root, '--no-github');
+      assert.equal(scanned.total, 3);
+      assert.equal(scanned.warnings, undefined);
+      const alpha = json('show', 'alpha');
+      assert.equal(alpha.description, 'Local alpha readme.');
+      assert.equal(alpha.remote, name === 'config' && kind !== 'regular link' ? undefined : 'github.com/acme/alpha');
+      assert.equal(alpha.branch, name === 'HEAD' && kind !== 'regular link' ? undefined : 'main');
+      const gamma = json('show', 'gamma');
+      assert.equal(gamma.description, 'Gamma package');
+      assert.equal(gamma.branch, 'main');
+      const after = lstatSync(file, { throwIfNoEntry: false });
+      assert.equal(after?.ino, before?.ino);
+      assert.equal(after?.mode, before?.mode);
+      if (kind.endsWith('link')) assert.equal(readlinkSync(file), target);
+      if (kind === 'regular link') assert.equal(readFileSync(target, 'utf8'), content);
+      else assert.equal(existsSync(target), false);
+    });
+  }
+}
+
+test('repeated Git metadata reads retain usable descriptors under a low open-file limit', t => {
+  if (process.platform === 'win32') return t.skip('Requires a POSIX open-file limit.');
+  const { dir, paths } = fixture(t);
+  for (const name of ['config', 'HEAD']) {
+    const file = join(paths.delta, '.git', name);
+    rmSync(file);
+    mkdirSync(file);
+  }
+  const script = `
+    import assert from 'node:assert/strict';
+    import { readLocalRepo } from ${JSON.stringify(new URL('./scan.ts', import.meta.url).href)};
+    for (let index = 0; index < 200; index++) {
+      const unsupported = readLocalRepo(${JSON.stringify(paths.delta)});
+      assert.equal(unsupported.remote, undefined);
+      assert.equal(unsupported.branch, undefined);
+      const readable = readLocalRepo(${JSON.stringify(paths.alpha)});
+      assert.equal(readable.remote, 'github.com/acme/alpha');
+      assert.equal(readable.branch, 'main');
+      assert.equal(readable.description, 'Local alpha readme.');
+    }
+    console.log('200 iterations completed');
+  `;
+  const result = spawnSync('/bin/sh', ['-c', 'ulimit -n 64 && exec "$@"', 'shelf-descriptor-test', process.execPath, '--input-type=module', '-e', script], {
+    cwd: dir, encoding: 'utf8', timeout: 5000, killSignal: 'SIGKILL',
+    env: { ...process.env, SHELF_HOME: join(dir, 'config') },
+  });
+  assert.equal(result.error, undefined);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, '200 iterations completed\n');
+});
+
 test('scan, show, and search retain a sparse README description with private state', t => {
   const { root, paths, json } = fixture(t);
   write(join(paths.alpha, 'README.md'), '# Alpha\n\nA sparse repository browser.\n\n');

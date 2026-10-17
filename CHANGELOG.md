@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 
+- Skill sync refuses linked or nonregular Shelf directories, ownership markers, and skill files before reading or writing through them.
 - Saved configuration and index writes remove their own temporary staging after success or failure without touching unrelated temporary files.
 - Replacing saved configuration or index files preserves their existing permissions.
 - Release-note extraction rejects empty changelog sections before publication.

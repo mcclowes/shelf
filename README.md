@@ -32,7 +32,7 @@ shelf relate kiln-web delta "Calls the payments API"   # this machine only
 shelf sync                                          # writes ~/.claude/skills/shelf
 ```
 
-`shelf sync` installs a global skill that tells agents to use `search` and `show`, to read a repository's `AGENTS.md` or README once they have its path, and to fill in missing descriptions.
+`shelf sync` installs a global skill that tells agents to use `search` and `show`, to read a repository's `AGENTS.md` or README once they have its path, and to fill in missing descriptions. It only refreshes a real Shelf-owned directory with a regular ownership marker and skill file; linked or nonregular entries are refused. An alias for the parent skills directory is supported.
 
 ## Related repositories
 

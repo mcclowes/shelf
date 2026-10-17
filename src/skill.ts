@@ -3,7 +3,7 @@
  * purpose: Write the global agent skill that teaches agents to query Shelf instead of walking the filesystem.
  * ---
  */
-import { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { lstatSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { maxDescription } from './describe.ts';
@@ -58,15 +58,17 @@ Don't guess at a repository you couldn't read. Overrides survive rescans; \`shel
 
 /** Shelf only overwrites a real directory carrying its own marker; anything else belongs to the user. */
 function ownedByShelf(dir: string, markerFile: string): boolean {
-  return !lstatSync(dir).isSymbolicLink() && existsSync(markerFile) && readFileSync(markerFile, 'utf8') === markerText;
+  return lstatSync(dir).isDirectory() && lstatSync(markerFile, { throwIfNoEntry: false })?.isFile() === true && readFileSync(markerFile, 'utf8') === markerText;
 }
 
 export function syncSkill(directory: string): { file: string; changed: boolean } {
   const dir = join(resolve(directory), skillName);
   const file = join(dir, 'SKILL.md');
   const markerFile = join(dir, marker);
-  if (existsSync(dir) && !ownedByShelf(dir, markerFile)) throw new Error(`${dir} exists and was not written by Shelf. Move it, or pass --skills-dir.`);
-  if (existsSync(file) && readFileSync(file, 'utf8') === skillText) return { file, changed: false };
+  if (lstatSync(dir, { throwIfNoEntry: false }) && !ownedByShelf(dir, markerFile)) throw new Error(`${dir} exists and was not written by Shelf. Move it, or pass --skills-dir.`);
+  const entry = lstatSync(file, { throwIfNoEntry: false });
+  if (entry && !entry.isFile()) throw new Error(`${file} exists and is not a regular file. Move it, or pass --skills-dir.`);
+  if (entry && readFileSync(file, 'utf8') === skillText) return { file, changed: false };
   mkdirSync(dir, { recursive: true });
   writeFileSync(file, skillText);
   writeFileSync(markerFile, markerText);

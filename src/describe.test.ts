@@ -179,6 +179,43 @@ for (const failRead of [false, true]) {
   });
 }
 
+test('first paragraph skips four-space installation code before prose', () => {
+  assert.equal(firstParagraph('# Tool\n\n    npm install example\n\nA repository browser.'), 'A repository browser.');
+});
+
+for (const [name, markdown, expected] of [
+  ['tab-indented code', '\tnpm install example\n\nA repository browser.', 'A repository browser.'],
+  ['mixed space and tab code', ' \tnpm install example\n\nA repository browser.', 'A repository browser.'],
+  ['three spaces before a tab', '   \tnpm install example\n\nA repository browser.', 'A repository browser.'],
+  ['deeply indented code', '        npm install example\n\nA repository browser.', 'A repository browser.'],
+  ['prose immediately after code', '    npm install example\nA repository browser.', 'A repository browser.'],
+  ['blank-separated code chunks', '    npm install example\n\n\tnpm run example\nA repository browser.', 'A repository browser.'],
+  ['code-only metadata', '    npm install example\n\n\tnpm run example\n', undefined],
+  ['one-space prose', ' A repository browser.', 'A repository browser.'],
+  ['two-space prose', '  A repository browser.', 'A repository browser.'],
+  ['three-space prose', '   A repository browser.', 'A repository browser.'],
+  ['four-space continuation', 'A repository browser\n    with indented continuation.', 'A repository browser with indented continuation.'],
+  ['tab continuation', 'A repository browser\n\twith indented continuation.', 'A repository browser with indented continuation.'],
+  ['leading blank lines', '\n    npm install example\n\nA repository browser.', 'A repository browser.'],
+] as const) {
+  test(`indented metadata handles ${name}`, () => {
+    assert.equal(firstParagraph(markdown), expected);
+  });
+}
+
+for (const name of ['README.md', 'AGENTS.md', 'CLAUDE.md']) {
+  test(`${name} descriptions skip leading indented code through describeLocal`, t => {
+    const root = metadataFixture(t);
+    writeFileSync(join(root, 'README.md'), '    Code-only README example.\n');
+    if (name === 'CLAUDE.md') writeFileSync(join(root, 'AGENTS.md'), '\tCode-only agent example.\n');
+    writeFileSync(join(root, name), '# Tool\n\n    npm install example\n\nA repository browser.\n');
+
+    assert.deepEqual(describeLocal(root), {
+      description: 'A repository browser.', description_source: name === 'README.md' ? 'readme' : 'agents',
+    });
+  });
+}
+
 test('first paragraph skips tilde-fenced examples before prose', () => {
   assert.equal(firstParagraph('~~~sh\nnpm install example\n~~~\n\nA repository browser.'), 'A repository browser.');
 });

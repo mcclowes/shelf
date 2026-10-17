@@ -113,8 +113,10 @@ export function firstParagraph(markdown: string, skip: (text: string) => boolean
   const normalized = markdown.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').replace(/^---\n[\s\S]*?\n---\n/, '');
   const body = withoutCodeAndComments(normalized);
   for (const block of body.split(/\n\s*\n/)) {
-    const lines = block.trim().split('\n');
-    if (!lines[0]) continue;
+    const rawLines = block.split('\n');
+    const start = rawLines.findIndex(line => line.trim() !== '' && !/^( {4}| {0,3}\t)/.test(line));
+    if (start < 0) continue;
+    const lines = rawLines.slice(start).join('\n').trim().split('\n');
     if (/^(#|<|!\[|\[!\[|\||>|-{3,}|={3,}|\s*[-*+] |\d+\. )/.test(lines[0]) || /^[=-]+$/.test(lines[1] ?? '')) continue;
     const text = clean(lines.join(' ').replace(/!\[[^\]]*\]\([^)]*\)/g, '').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/(?<=[.!?])\s+[^.!?]*:\s*$/, ''));
     if (text && /[a-z]/i.test(text) && !skip(text)) return text;

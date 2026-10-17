@@ -141,6 +141,31 @@ test('scan persists fenced README and encoded agent prose while excluding exampl
   for (const path of [...Object.values(paths), epsilon]) assert.equal(existsSync(join(path, 'should-not-exist')), false);
 });
 
+test('scan, list, show, and search retain prose after indented installation examples', t => {
+  const { dir, root, paths, json } = fixture(t);
+  write(join(paths.alpha, 'README.md'), '# Alpha\n\n    touch should-not-exist\n\nA repository browser.\n');
+  write(join(paths.gamma, 'README.md'), '    Example code.\n\nREADME cannot replace the manifest.\n');
+  write(join(paths.delta, 'README.md'), '\tExample code-only README.\n');
+  write(join(paths.delta, 'AGENTS.md'), '    Example installation.\n\nA local toolkit for agents.\n');
+
+  assert.equal(json('scan', '--root', root, '--no-github').local, 3);
+  const listed = json('list').items;
+  for (const [name, description, source] of [
+    ['alpha', 'A repository browser.', 'readme'],
+    ['gamma', 'Gamma package', 'manifest'],
+    ['delta', 'A local toolkit for agents.', 'agents'],
+  ] as const) {
+    const shown = json('show', name);
+    assert.equal(shown.description, description);
+    assert.equal(shown.description_source, source);
+    assert.equal(listed.find((item: { name: string }) => item.name === name).description, description);
+  }
+  assert.deepEqual(json('search', 'browser').items.map((item: { name: string }) => item.name), ['alpha']);
+  assert.equal(json('search', 'Example installation').total, 0);
+  assert.equal(existsSync(join(dir, 'should-not-exist')), false);
+  for (const path of Object.values(paths)) assert.equal(existsSync(join(path, 'should-not-exist')), false);
+});
+
 test('scan exposes modern and legacy command catalogs without executing them', t => {
   const { dir, root, paths, json } = fixture(t);
   const catalog = '# Commands\n\n- Unsafe fixture: `touch should-not-exist` #writes\n';

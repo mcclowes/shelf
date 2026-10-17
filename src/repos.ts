@@ -4,26 +4,34 @@
  * ---
  */
 import { resolve } from 'node:path';
-import { overrideKey, type Repo } from './store.ts';
+import { identityKey, overrideKey, type Repo } from './store.ts';
 
 /** A fork's origin is often upstream, so any remote can match; the matched one becomes the clone's remote. */
 export function mergeRepos(local: Repo[], remote: Repo[], overrides: Record<string, string>): Repo[] {
-  const byRemote = new Map(remote.map(repo => [repo.remote, repo]));
+  const byRemote = new Map<string, Repo>();
+  for (const repo of remote) {
+    const key = identityKey(repo.remote ?? repo.id);
+    if (!byRemote.has(key)) byRemote.set(key, repo);
+  }
   const cloned = new Set<string>();
   const merged = local.map(repo => {
-    const github = (repo.remotes ?? [repo.remote]).map(remote => remote && byRemote.get(remote)).find(Boolean);
+    const github = (repo.remotes ?? [repo.remote]).map(remote => remote && byRemote.get(identityKey(remote))).find(Boolean);
     if (!github) return repo;
     cloned.add(github.id);
     const { id: _id, name: _name, description, description_source, ...rest } = github;
     return { ...repo, ...rest, ...(description ? { description, description_source } : {}) };
   });
-  return [...merged, ...remote.filter(repo => !cloned.has(repo.id))].map(repo => applyOverride(repo, overrides)).sort(byName);
+  return [...merged, ...[...byRemote.values()].filter(repo => !cloned.has(repo.id))].map(repo => applyOverride(repo, overrides)).sort(byName);
 }
 
 export function applyOverride(repo: Repo, overrides: Record<string, string>): Repo {
-  const description = overrides[overrideKey(repo)];
+  const key = overrideKey(repo);
+  const description = overrides[key] ?? Object.entries(overrides).find(([stored]) => identityKey(stored) === key)?.[1];
   return description ? { ...repo, description, description_source: 'override' } : repo;
 }
+
+export const withoutOverride = (repo: Repo, overrides: Record<string, string>): Record<string, string> =>
+  Object.fromEntries(Object.entries(overrides).filter(([key]) => identityKey(key) !== overrideKey(repo)));
 
 const byName = (a: Repo, b: Repo) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id);
 

@@ -166,6 +166,116 @@ test('scan, list, show, and search retain prose after indented installation exam
   for (const path of Object.values(paths)) assert.equal(existsSync(join(path, 'should-not-exist')), false);
 });
 
+for (const operation of ['update', 'clear']) {
+  test(`mixed-case GitHub description keys survive scans and ${operation} without resurrecting legacy values`, t => {
+    const { dir, root, paths, json } = fixture(t);
+    json('scan', '--root', root, '--github', 'acme');
+    const config = join(dir, 'config', 'config.json');
+    const index = join(dir, 'config', 'index.json');
+    const saved = JSON.parse(readFileSync(config, 'utf8'));
+    const unrelated = { 'gitlab.example.com/Acme/Alpha': 'Keep external override.', [paths.delta]: 'Keep local override.' };
+    saved.overrides = { 'github.com/Acme/Alpha': 'Legacy override.', 'github.com/ACME/ALPHA': 'Duplicate legacy override.', ...unrelated };
+    writeFileSync(config, `${JSON.stringify(saved, null, 2)}\n`);
+    chmodSync(config, 0o640);
+    chmodSync(index, 0o600);
+    const before = readFileSync(config);
+    write(join(dir, 'gh.json'), JSON.stringify(githubRepos.map(repo => repo.name === 'alpha'
+      ? { ...repo, name: 'Alpha', nameWithOwner: 'Acme/Alpha', url: 'https://github.com/Acme/Alpha' } : repo)));
+
+    json('scan');
+    assert.equal(json('show', 'ACME/ALPHA').description, 'Legacy override.');
+    assert.deepEqual(readFileSync(config), before);
+    if (operation === 'update') json('describe', 'acme/ALPHA', 'Updated override.');
+    else json('describe', 'ACME/alpha', '--clear');
+
+    const updated = JSON.parse(readFileSync(config, 'utf8'));
+    assert.deepEqual(updated.overrides, operation === 'update' ? { ...unrelated, 'github.com/acme/alpha': 'Updated override.' } : unrelated);
+    assert.deepEqual({ ...updated, overrides: saved.overrides }, saved);
+    json('scan');
+    assert.equal(json('show', 'Acme/Alpha').description, operation === 'update' ? 'Updated override.' : 'Alpha from GitHub');
+    assert.equal(json('show', 'Acme/Alpha').id, paths.alpha);
+    assert.deepEqual([statSync(config).mode & 0o777, statSync(index).mode & 0o777], [0o640, 0o600]);
+  });
+}
+
+for (const operation of ['update', 'clear']) {
+  test(`mixed-case local relation endpoints resolve both ways and ${operation} the same pair`, t => {
+    const { dir, root, paths, json } = fixture(t);
+    write(join(paths.alpha, '.shelf.json'), JSON.stringify({ related: [{ repo: 'ACME/BETA', relation: 'Declared fallback.' }] }));
+    json('scan', '--root', root, '--github', 'acme');
+    const config = join(dir, 'config', 'config.json');
+    const index = join(dir, 'config', 'index.json');
+    const saved = JSON.parse(readFileSync(config, 'utf8'));
+    const unrelated = [
+      { from: 'github.com/acme/beta', to: 'github.com/Acme/Alpha', relation: 'Keep reverse.' },
+      { from: paths.delta, to: paths.gamma, relation: 'Keep local.' },
+    ];
+    saved.relations = [
+      { from: 'github.com/Acme/Alpha', to: 'github.com/ACME/BETA', relation: 'Legacy conduit.' },
+      { from: 'github.com/ACME/ALPHA', to: 'github.com/Acme/Beta', relation: 'Duplicate legacy conduit.' },
+      ...unrelated,
+    ];
+    writeFileSync(config, `${JSON.stringify(saved, null, 2)}\n`);
+    chmodSync(config, 0o640);
+    chmodSync(index, 0o600);
+    const before = readFileSync(config);
+
+    assert.equal(json('related', 'alpha').items.find((item: RelatedItem) => item.direction === 'outgoing').relation, 'Legacy conduit.');
+    assert.equal(json('related', 'beta').items.find((item: RelatedItem) => item.direction === 'incoming').relation, 'Legacy conduit.');
+    assert.deepEqual(json('search', 'Legacy conduit').items.map((item: { name: string }) => item.name), ['alpha', 'beta']);
+    assert.deepEqual(readFileSync(config), before);
+    json('relate', 'ACME/ALPHA', 'acme/BETA', operation === 'update' ? 'Updated conduit.' : '--clear');
+
+    const updated = JSON.parse(readFileSync(config, 'utf8'));
+    assert.deepEqual(updated.relations, operation === 'update'
+      ? [...unrelated, { from: 'github.com/acme/alpha', to: 'github.com/acme/beta', relation: 'Updated conduit.' }]
+      : unrelated);
+    assert.deepEqual({ ...updated, relations: saved.relations }, saved);
+    const outgoing = json('related', 'alpha').items.filter((item: RelatedItem) => item.direction === 'outgoing');
+    assert.deepEqual(outgoing.map((item: RelatedItem) => [item.relation, item.source]), [[
+      operation === 'update' ? 'Updated conduit.' : 'Declared fallback.', operation === 'update' ? 'local' : 'repo',
+    ]]);
+    assert.equal(json('search', 'Legacy conduit').total, 0);
+    const after = readFileSync(config);
+    json('scan');
+    assert.deepEqual(readFileSync(config), after);
+    assert.deepEqual([statSync(config).mode & 0o777, statSync(index).mode & 0o777], [0o640, 0o600]);
+  });
+}
+
+test('GitHub scans deduplicate repeated owners and match secondary remotes without merging local clones', t => {
+  const { dir, root, paths, run, json } = fixture(t);
+  const mirror = repo(root, 'alpha-mirror', {}, 'https://github.com/ACME/ALPHA.git');
+  const fork = repo(root, 'beta-fork');
+  write(join(fork, '.git', 'config'), '[remote "origin"]\n\turl = https://github.com/upstream/beta.git\n[remote "fork"]\n\turl = git@github.com:acme/beta.git\n');
+  write(join(dir, 'gh.json'), JSON.stringify(githubRepos.map(repo => ({
+    ...repo, name: repo.name === 'alpha' ? 'Alpha' : 'Beta',
+    nameWithOwner: repo.name === 'alpha' ? 'Acme/Alpha' : 'Acme/Beta',
+    url: repo.name === 'alpha' ? 'https://github.com/Acme/Alpha' : 'https://github.com/Acme/Beta',
+  }))));
+
+  const scanned = json('scan', '--root', root, '--github', 'acme', '--github', 'ACME');
+
+  assert.deepEqual([scanned.total, scanned.local, scanned.github_only], [5, 5, 0]);
+  const listed = json('list').items;
+  assert.equal(new Set(listed.map((item: { id: string }) => item.id)).size, 5);
+  for (const id of [paths.alpha, mirror]) {
+    const shown = json('show', id);
+    assert.equal(shown.id, id);
+    assert.equal(shown.path, id);
+    assert.equal(shown.remote, 'github.com/Acme/Alpha');
+    assert.equal(shown.github.url, 'https://github.com/Acme/Alpha');
+  }
+  const shownFork = json('show', 'ACME/BETA');
+  assert.equal(shownFork.id, fork);
+  assert.equal(shownFork.name, 'beta-fork');
+  assert.equal(shownFork.remote, 'github.com/Acme/Beta');
+  assert.deepEqual(shownFork.remotes, ['github.com/upstream/beta', 'github.com/acme/beta']);
+  const ambiguous = run('show', 'ACME/ALPHA');
+  assert.equal(ambiguous.status, 1);
+  assert.match(JSON.parse(ambiguous.stderr).error.message, /matches 2 repositories/);
+});
+
 test('scan exposes modern and legacy command catalogs without executing them', t => {
   const { dir, root, paths, json } = fixture(t);
   const catalog = '# Commands\n\n- Unsafe fixture: `touch should-not-exist` #writes\n';

@@ -10,7 +10,7 @@ import { isAbsolute, join, resolve } from 'node:path';
 import { clean } from './describe.ts';
 import { findRepos, summary } from './repos.ts';
 import { normalizeRemote } from './scan.ts';
-import { overrideKey, type DeclaredRelation, type LocalRelation, type Repo } from './store.ts';
+import { identityKey, overrideKey, type DeclaredRelation, type LocalRelation, type Repo } from './store.ts';
 
 export const relationsFile = '.shelf.json';
 
@@ -77,10 +77,10 @@ export function resolveRef(repos: Repo[], from: Repo, ref: string): Repo[] {
 }
 
 function edges(repos: Repo[], local: LocalRelation[]): Edge[] {
-  const byKey = (key: string) => repos.filter(repo => overrideKey(repo) === key);
+  const byKey = (key: string) => repos.filter(repo => overrideKey(repo) === identityKey(key));
   const declared = repos.flatMap(from => (from.related ?? []).map(({ ref, relation }) => ({ from, ref, targets: resolveRef(repos, from, ref), relation, source: 'repo' as const })));
   const mine = local.flatMap(({ from, to, relation }) => byKey(from).map(repo => ({ from: repo, ref: to, targets: byKey(to), relation, source: 'local' as const })));
-  const localPairs = new Set(local.map(({ from, to }) => `${from}\0${to}`));
+  const localPairs = new Set(local.map(({ from, to }) => `${identityKey(from)}\0${identityKey(to)}`));
   const effectiveDeclared = declared.flatMap(edge => {
     const targets = edge.targets.filter(target => !localPairs.has(`${overrideKey(edge.from)}\0${overrideKey(target)}`));
     return targets.length || !edge.targets.length ? [{ ...edge, targets }] : [];

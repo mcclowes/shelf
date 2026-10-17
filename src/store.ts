@@ -39,8 +39,11 @@ export const shelfHome = () => process.env.SHELF_HOME ?? join(homedir(), '.confi
 const configPath = () => join(shelfHome(), 'config.json');
 const indexPath = () => join(shelfHome(), 'index.json');
 
+/** GitHub identities ignore case; paths and other hosts retain their spelling. */
+export const identityKey = (key: string): string => /^github\.com\//i.test(key) ? key.toLowerCase() : key;
+
 /** Overrides follow the remote, so a description survives moving or re-cloning a repository. */
-export const overrideKey = (repo: Repo) => repo.remote ?? repo.id;
+export const overrideKey = (repo: Repo) => identityKey(repo.remote ?? repo.id);
 
 export function readConfig(): Config {
   const path = configPath();

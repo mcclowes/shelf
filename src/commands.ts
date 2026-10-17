@@ -16,10 +16,10 @@ import { clean } from './describe.ts';
 import { listGithub, validOwner } from './github.ts';
 import { page, renderCommandHelp, renderDescribed, renderHelp, renderItems, renderRelation, renderRepo, renderScan, renderSync } from './output.ts';
 import { readDeclaredRelations, relatedTo, searchableRelationText } from './relations.ts';
-import { applyOverride, findRepo, mergeRepos, searchRepos, summary } from './repos.ts';
+import { applyOverride, findRepo, mergeRepos, searchRepos, summary, withoutOverride } from './repos.ts';
 import { defaultDepth, findRepositories, readLocalRepo } from './scan.ts';
 import { defaultSkillsDir, syncSkill } from './skill.ts';
-import { overrideKey, readConfig, readIndex, writeConfig, writeIndex, type Config, type Index, type Repo } from './store.ts';
+import { identityKey, overrideKey, readConfig, readIndex, writeConfig, writeIndex, type Config, type Index, type Repo } from './store.ts';
 
 /** Flags that commands read; main adds the global ones before parsing. */
 export const commandOptions = {
@@ -95,7 +95,7 @@ function describe({ args: [ref, text], options }: Invocation) {
   const description = clean(text);
   if (!description) throw new Error('Description is empty.');
   const key = overrideKey(repo);
-  const overrides = { ...config.overrides, [key]: description };
+  const overrides = { ...withoutOverride(repo, config.overrides), [key]: description };
   writeConfig({ ...config, overrides });
   writeIndex({ ...index, repos: index.repos.map(entry => overrideKey(entry) === key ? applyOverride(entry, overrides) : entry) });
   return { described: repo.id, description };
@@ -104,7 +104,7 @@ function describe({ args: [ref, text], options }: Invocation) {
 /** Clearing an override can't recover the scanned description, so a cleared entry waits for the next scan. */
 function clearDescription(index: Index, config: Config, repo: Repo) {
   const key = overrideKey(repo);
-  const { [key]: _cleared, ...overrides } = config.overrides;
+  const overrides = withoutOverride(repo, config.overrides);
   writeConfig({ ...config, overrides });
   const repos = index.repos.map(entry => overrideKey(entry) === key && entry.description_source === 'override' ? withoutDescription(entry) : entry);
   writeIndex({ ...index, repos });
@@ -121,7 +121,7 @@ function relate({ args: [fromRef, toRef, text], options }: Invocation) {
   if (from.id === to.id) throw new Error('A repository cannot relate to itself.');
   const config = readConfig();
   const key = { from: overrideKey(from), to: overrideKey(to) };
-  const others = config.relations.filter(entry => entry.from !== key.from || entry.to !== key.to);
+  const others = config.relations.filter(entry => identityKey(entry.from) !== key.from || identityKey(entry.to) !== key.to);
   if (options.clear) {
     if (others.length === config.relations.length) throw new Error(`No local relation from ${from.id} to ${to.id}.`);
     writeConfig({ ...config, relations: others });

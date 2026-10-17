@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 
+- Saved configuration and index writes remove their own temporary staging after success or failure without touching unrelated temporary files.
 - Replacing saved configuration or index files preserves their existing permissions.
 - Release-note extraction rejects empty changelog sections before publication.
 - Repository scans reject blank explicit depth values before replacing saved configuration or index data.

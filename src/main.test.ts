@@ -1,6 +1,6 @@
 import { test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -266,6 +266,128 @@ test('search ranks by name and filters on every word', t => {
   assert.deepEqual(json('search', 'gamma').items.map((item: { name: string }) => item.name), ['gamma']);
   assert.deepEqual(json('search', 'typescript').items.map((item: { name: string }) => item.name), ['alpha']);
   assert.equal(json('search', 'nothing', 'matches').total, 0);
+});
+
+test('failed state promotion removes only its staging and permits a subsequent scan', t => {
+  const { dir, root, run, json } = fixture(t);
+  json('scan', '--root', root, '--no-github');
+  const home = join(dir, 'config');
+  const index = join(home, 'index.json');
+  rmSync(index);
+  mkdirSync(index, { mode: 0o750 });
+  write(join(index, 'sentinel'), 'Keep blocked target.\n');
+  write(join(home, 'index.json.previous.tmp'), 'Keep unrelated temporary file.\n');
+  write(join(home, '.index.json-preserved', 'sentinel'), 'Keep unrelated staging.\n');
+  const original = statSync(index);
+  const before = readdirSync(home).sort();
+
+  const failed = run('scan', '--no-github');
+
+  assert.equal(failed.status, 1);
+  const error = JSON.parse(failed.stderr).error;
+  assert.equal(error.kind, 'invalid_request');
+  assert.match(error.message, /rename/);
+  assert.match(error.message, /EISDIR|ENOTDIR/);
+  assert.deepEqual(readdirSync(home).sort(), before);
+  assert.equal(statSync(index).ino, original.ino);
+  assert.equal(statSync(index).mode, original.mode);
+  assert.equal(readFileSync(join(index, 'sentinel'), 'utf8'), 'Keep blocked target.\n');
+  assert.equal(readFileSync(join(home, 'index.json.previous.tmp'), 'utf8'), 'Keep unrelated temporary file.\n');
+  assert.equal(readFileSync(join(home, '.index.json-preserved', 'sentinel'), 'utf8'), 'Keep unrelated staging.\n');
+
+  rmSync(index, { recursive: true });
+  assert.equal(json('scan', '--no-github').local, 3);
+  assert.equal(json('show', 'alpha').name, 'alpha');
+  assert.deepEqual(readdirSync(home).sort(), before);
+});
+
+for (const fault of ['partial write', 'chmod']) {
+  test(`a state ${fault} failure preserves saved data and removes its staging`, t => {
+    const { dir, root, run, json } = fixture(t);
+    json('scan', '--root', root, '--no-github');
+    const home = join(dir, 'config');
+    const files = ['config.json', 'index.json'].map(name => join(home, name));
+    chmodSync(files[0]!, 0o640);
+    chmodSync(files[1]!, 0o600);
+    write(join(home, 'config.json.previous.tmp'), 'Keep unrelated staging.\n');
+    const before = files.map(file => ({ bytes: readFileSync(file), mode: statSync(file).mode }));
+    const entries = readdirSync(home).sort();
+    const preload = join(dir, 'fault.mjs');
+    write(preload, `
+      import fs from 'node:fs';
+      import { syncBuiltinESMExports } from 'node:module';
+      const target = process.env.SHELF_HOME + '/config.json.';
+      const fault = ${JSON.stringify(fault)};
+      const original = fs[fault === 'partial write' ? 'writeFileSync' : 'chmodSync'];
+      fs[fault === 'partial write' ? 'writeFileSync' : 'chmodSync'] = (file, ...args) => {
+        if (String(file).startsWith(target) && (fault === 'partial write' || !fs.statSync(file).isDirectory())) {
+          if (fault === 'partial write') original(file, 'partial');
+          throw new Error('fixture ' + fault + ' failure');
+        }
+        return original(file, ...args);
+      };
+      syncBuiltinESMExports();
+    `);
+
+    const failed = spawnSync(process.execPath, ['--import', preload, main.pathname, 'describe', 'delta', 'Unsaved'], {
+      cwd: dir, encoding: 'utf8', timeout: 10000,
+      env: { ...process.env, SHELF_HOME: home },
+    });
+
+    assert.equal(failed.status, 1, failed.stderr);
+    assert.deepEqual(JSON.parse(failed.stderr), { error: { kind: 'invalid_request', message: `fixture ${fault} failure` } });
+    assert.deepEqual(files.map(file => ({ bytes: readFileSync(file), mode: statSync(file).mode })), before);
+    assert.deepEqual(readdirSync(home).sort(), entries);
+    assert.equal(readFileSync(join(home, 'config.json.previous.tmp'), 'utf8'), 'Keep unrelated staging.\n');
+    assert.equal(json('describe', 'delta', 'Saved after retry').description, 'Saved after retry');
+    assert.deepEqual(readdirSync(home).sort(), entries);
+    assert.equal(run('show', 'delta').status, 0);
+  });
+}
+
+test('state writes preserve a pre-existing temporary file with the same process ID', t => {
+  const { dir, root } = fixture(t);
+  const home = join(dir, 'config');
+  const preload = join(dir, 'previous-staging.mjs');
+  write(preload, `
+    import { mkdirSync, writeFileSync } from 'node:fs';
+    import { join } from 'node:path';
+    mkdirSync(process.env.SHELF_HOME, { recursive: true });
+    for (const name of ['config.json', 'index.json']) {
+      writeFileSync(join(process.env.SHELF_HOME, name + '.' + process.pid + '.tmp'), 'Keep previous staging.\\n', { mode: 0o640 });
+    }
+  `);
+  const scanned = spawnSync(process.execPath, ['--import', preload, main.pathname, 'scan', '--root', root, '--no-github'], {
+    cwd: dir, encoding: 'utf8', timeout: 10000, env: { ...process.env, SHELF_HOME: home },
+  });
+  assert.equal(scanned.status, 0, scanned.stderr);
+  assert.equal(JSON.parse(scanned.stdout).local, 3);
+  const previous = readdirSync(home).filter(name => name.endsWith('.tmp'));
+  assert.equal(previous.length, 2);
+  for (const name of previous) {
+    assert.equal(readFileSync(join(home, name), 'utf8'), 'Keep previous staging.\n');
+    assert.equal(statSync(join(home, name)).mode & 0o777, 0o640 & ~process.umask());
+  }
+  assert.equal(readdirSync(home).length, 4);
+});
+
+test('private state staging remains writable when a child umask removes owner permissions', t => {
+  const { dir, root, json } = fixture(t);
+  json('scan', '--root', root, '--no-github');
+  const home = join(dir, 'config');
+  const files = ['config.json', 'index.json'].map(name => join(home, name));
+  for (const file of files) chmodSync(file, 0o640);
+  const parentUmask = process.umask();
+  const preload = join(dir, 'owner-umask.mjs');
+  write(preload, 'process.umask(0o700);\n');
+  const scanned = spawnSync(process.execPath, ['--import', preload, main.pathname, 'scan', '--no-github'], {
+    cwd: dir, encoding: 'utf8', timeout: 10000, env: { ...process.env, SHELF_HOME: home },
+  });
+  assert.equal(scanned.status, 0, scanned.stderr);
+  assert.equal(JSON.parse(scanned.stdout).local, 3);
+  assert.deepEqual(files.map(file => statSync(file).mode & 0o777), [0o640, 0o640]);
+  assert.deepEqual(readdirSync(home).sort(), ['config.json', 'index.json']);
+  assert.equal(process.umask(), parentUmask);
 });
 
 test('describe preserves restricted configuration and index permissions while updating content', t => {

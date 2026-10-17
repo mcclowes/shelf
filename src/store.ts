@@ -3,7 +3,7 @@
  * purpose: Persist Shelf configuration (roots, GitHub owners, description overrides, local relations) and the derived repository index.
  * ---
  */
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 
@@ -65,9 +65,15 @@ export const writeIndex = (index: Index) => writeJson(indexPath(), index);
 function writeJson(path: string, data: unknown): void {
   mkdirSync(dirname(path), { recursive: true });
   const mode = existsSync(path) ? statSync(path).mode & 0o777 : undefined;
-  const temporary = `${path}.${process.pid}.tmp`;
-  writeFileSync(temporary, `${JSON.stringify(data, null, 2)}\n`, { mode });
-  // Creation applies the current umask, so restore the exact saved mode before replacement.
-  if (mode !== undefined) chmodSync(temporary, mode);
-  renameSync(temporary, path);
+  const staging = mkdtempSync(`${path}.`);
+  try {
+    chmodSync(staging, 0o700);
+    const temporary = join(staging, 'state.json');
+    writeFileSync(temporary, `${JSON.stringify(data, null, 2)}\n`, { mode });
+    // Creation applies the current umask, so restore the exact saved mode before replacement.
+    if (mode !== undefined) chmodSync(temporary, mode);
+    renameSync(temporary, path);
+  } finally {
+    rmSync(staging, { recursive: true, force: true });
+  }
 }

@@ -64,7 +64,7 @@ A relation shows on both repositories: as outgoing on the one that declares it a
 - **Descriptions.** In order of precedence: your `shelf describe` override, the GitHub description, the `package.json`, `Cargo.toml`, or `pyproject.toml` description, then the README's first prose paragraph, then the first prose paragraph of `AGENTS.md` or `CLAUDE.md`. Descriptions are cleaned and capped at 280 characters. Overrides are keyed by remote, so they survive moves and rescans.
 - **Agent guidance.** `shelf show` lists existing `AGENTS.md`, `CLAUDE.md`, `.clip/commands.md`, and legacy `.saggar/commands.md` files in `agent_files`. Catalog commands are never executed during a scan.
 
-The configuration and the index live in `~/.config/shelf`. Set `SHELF_HOME` to use another location. Replacing either file preserves its existing permissions, including when the current process uses a more restrictive umask. New files follow the process umask.
+The configuration and the index live in `~/.config/shelf`. Set `SHELF_HOME` to use another location. Replacing either file preserves its existing permissions, including when the current process uses a more restrictive umask. New files follow the process umask. Each replacement uses fresh private staging, which is removed after success or failure; unrelated temporary files are left alone.
 
 ## CLI behavior
 

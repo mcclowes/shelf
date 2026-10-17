@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 
+- Description parsing skips backtick and tilde fenced examples with matching delimiter rules, preserves adjacent prose, and recognizes a leading UTF-8 signature before fences and frontmatter.
 - README discovery skips directories and broken links while preserving links to regular files and sorted precedence.
 - Description reads stop at the existing 256 KiB metadata limit before loading file contents, so oversized files retain their description precedence.
 - Commands reject flags belonging to other commands before reading or changing saved state or starting a scan.

@@ -78,16 +78,43 @@ function readText(file: string): string | undefined {
   }
 }
 
+function withoutCodeAndComments(markdown: string): string {
+  let fence: string | undefined;
+  let comment = false;
+  return markdown.split('\n').map(line => {
+    const match = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
+    const run = match?.[1];
+    const tail = match?.[2] ?? '';
+    if (fence) {
+      if (run && run[0] === fence[0] && run.length >= fence.length && /^[ \t]*$/.test(tail)) fence = undefined;
+      return '\n';
+    }
+    if (!comment && run && (run[0] === '~' || !tail.includes('`'))) {
+      fence = run;
+      return '\n';
+    }
+    let cursor = 0;
+    let text = '';
+    for (const token of line.matchAll(/<!--|-->/g)) {
+      if (!comment && token[0] === '<!--') {
+        text += line.slice(cursor, token.index);
+        comment = true;
+      } else if (comment && token[0] === '-->') {
+        cursor = token.index + 3;
+        comment = false;
+      }
+    }
+    return comment ? text : `${text}${line.slice(cursor)}\n`;
+  }).join('');
+}
+
 /** The first prose paragraph, skipping front matter, headings, badges, images, HTML, code, and tables. */
 export function firstParagraph(markdown: string, skip: (text: string) => boolean = () => false): string | undefined {
-  const body = markdown.replace(/\r\n/g, '\n').replace(/^---\n[\s\S]*?\n---\n/, '').replace(/<!--[\s\S]*?-->/g, '');
-  let fenced = false;
+  const normalized = markdown.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').replace(/^---\n[\s\S]*?\n---\n/, '');
+  const body = withoutCodeAndComments(normalized);
   for (const block of body.split(/\n\s*\n/)) {
     const lines = block.trim().split('\n');
-    const fences = lines.filter(line => line.trimStart().startsWith('```')).length;
-    const wasFenced = fenced;
-    if (fences % 2) fenced = !fenced;
-    if (wasFenced || fences || !lines[0]) continue;
+    if (!lines[0]) continue;
     if (/^(#|<|!\[|\[!\[|\||>|-{3,}|={3,}|\s*[-*+] |\d+\. )/.test(lines[0]) || /^[=-]+$/.test(lines[1] ?? '')) continue;
     const text = clean(lines.join(' ').replace(/!\[[^\]]*\]\([^)]*\)/g, '').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/(?<=[.!?])\s+[^.!?]*:\s*$/, ''));
     if (text && /[a-z]/i.test(text) && !skip(text)) return text;

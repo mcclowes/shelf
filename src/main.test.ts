@@ -113,6 +113,34 @@ test('scan, show, and search select regular READMEs past non-file candidates', t
   assert.equal(existsSync(missing), false);
 });
 
+test('scan persists fenced README and encoded agent prose while excluding example code', t => {
+  const { dir, root, paths, json } = fixture(t);
+  write(join(paths.alpha, 'README.md'), '````markdown\n```sh\ntouch should-not-exist\n```\n````\nA fenced repository browser.\n');
+  write(join(paths.gamma, 'README.md'), '~~~\nExample code.\n~~~\nREADME cannot replace the manifest.\n');
+  write(join(paths.delta, 'README.md'), '~~~\nExample code.\n\nStill inside an unclosed fence.\n');
+  write(join(paths.delta, 'AGENTS.md'), '\uFEFF```sh\nExample agent code.\n```\n\nThis file provides guidance to agents.\n\nA local toolkit for agents.\n');
+  const epsilon = repo(root, 'epsilon', { 'README.md': '\uFEFF---\r\ntitle: hidden\r\n\r\nnote: metadata\r\nvalue: hidden\r\n\r\n---\r\n\r\n~~~sh\r\nExample code.\r\n~~~\r\nA signed repository browser.\r\n' });
+  for (const file of [join(paths.delta, 'AGENTS.md'), join(epsilon, 'README.md')]) {
+    assert.deepEqual([...readFileSync(file).subarray(0, 3)], [0xef, 0xbb, 0xbf]);
+  }
+
+  assert.equal(json('scan', '--root', root, '--no-github').local, 4);
+  for (const [name, description, source] of [
+    ['alpha', 'A fenced repository browser.', 'readme'],
+    ['gamma', 'Gamma package', 'manifest'],
+    ['delta', 'A local toolkit for agents.', 'agents'],
+    ['epsilon', 'A signed repository browser.', 'readme'],
+  ] as const) {
+    const shown = json('show', name);
+    assert.equal(shown.description, description);
+    assert.equal(shown.description_source, source);
+  }
+  assert.deepEqual(json('search', 'browser').items.map((item: { name: string }) => item.name), ['alpha', 'epsilon']);
+  assert.equal(json('search', 'Example code').total, 0);
+  assert.equal(existsSync(join(dir, 'should-not-exist')), false);
+  for (const path of [...Object.values(paths), epsilon]) assert.equal(existsSync(join(path, 'should-not-exist')), false);
+});
+
 test('scan exposes modern and legacy command catalogs without executing them', t => {
   const { dir, root, paths, json } = fixture(t);
   const catalog = '# Commands\n\n- Unsafe fixture: `touch should-not-exist` #writes\n';

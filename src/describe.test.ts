@@ -179,6 +179,65 @@ for (const failRead of [false, true]) {
   });
 }
 
+test('first paragraph skips tilde-fenced examples before prose', () => {
+  assert.equal(firstParagraph('~~~sh\nnpm install example\n~~~\n\nA repository browser.'), 'A repository browser.');
+});
+
+for (const [name, lines, expected] of [
+  ['long backticks', ['````markdown', '```sh', 'Example code.', '```', '````', 'A repository browser.'], 'A repository browser.'],
+  ['long tildes', ['~~~~', '~~~sh', 'Example code.', '~~~', '~~~~', 'A repository browser.'], 'A repository browser.'],
+  ['mismatched markers', ['```', '~~~', 'Example code.', '```', 'A repository browser.'], 'A repository browser.'],
+  ['closing text', ['~~~', '~~~ trailing text', 'Example code.', '~~~', 'A repository browser.'], 'A repository browser.'],
+  ['longer closing marker and whitespace', ['```', 'Example code.', '````` \t', 'A repository browser.'], 'A repository browser.'],
+  ['indented fences', ['   ~~~sh', 'Example code.', ' ~~~', 'A repository browser.'], 'A repository browser.'],
+  ['overindented closing marker', ['~~~', '    ~~~', 'Example code.', '~~~', 'A repository browser.'], 'A repository browser.'],
+  ['tilde info containing backticks', ['~~~sh `example`', 'Example code.', '~~~', 'A repository browser.'], 'A repository browser.'],
+  ['literal comment syntax inside code', ['~~~', '<!--', '~~~', 'A repository browser.'], 'A repository browser.'],
+  ['fence syntax inside HTML comments', ['<!--', '~~~', '-->', 'A repository browser.'], 'A repository browser.'],
+  ['adjacent following prose', ['~~~', 'Example code.', '~~~', 'A repository browser.'], 'A repository browser.'],
+  ['adjacent preceding prose', ['A repository browser.', '~~~', 'Example code.', '~~~', 'Unrelated following prose.'], 'A repository browser.'],
+  ['unclosed backticks', ['# Heading', '', '````', '```', 'Example code.'], undefined],
+  ['unclosed tildes', ['# Heading', '', '~~~', 'Example code.', '', 'Still code.'], undefined],
+] as const) {
+  test(`fenced metadata handles ${name}`, () => {
+    assert.equal(firstParagraph(lines.join('\n')), expected);
+  });
+}
+
+test('invalid backtick info and inline markers remain ordinary paragraph text', () => {
+  assert.equal(firstParagraph('```not`a`fence\nA repository browser.'), '```not`a`fence A repository browser.');
+  assert.equal(firstParagraph('A ``` marker in prose.\nStill prose.'), 'A ``` marker in prose. Still prose.');
+});
+
+for (const ending of ['\r\n', '\r']) {
+  test(`fenced metadata handles ${JSON.stringify(ending)} line endings`, () => {
+    assert.equal(firstParagraph(['~~~', 'Example code.', '~~~', 'A repository browser.'].join(ending)), 'A repository browser.');
+  });
+}
+
+test('paragraph rejection keeps prose on opposite sides of a fence separate', () => {
+  const seen: string[] = [];
+  const description = firstParagraph('Skip this boilerplate.\n~~~\nExample code.\n~~~\nA repository browser.', text => {
+    seen.push(text);
+    return text.startsWith('Skip');
+  });
+  assert.equal(description, 'A repository browser.');
+  assert.deepEqual(seen, ['Skip this boilerplate.', 'A repository browser.']);
+});
+
+test('inline multiline HTML comments retain the surrounding prose paragraph', () => {
+  assert.equal(firstParagraph('A <!-- hidden\n~~~\ntext -->repository browser.'), 'A repository browser.');
+});
+
+test('a leading UTF-8 signature does not expose fenced code as prose', () => {
+  assert.equal(firstParagraph('\uFEFF```sh\nExample code.\n```\nA repository browser.'), 'A repository browser.');
+});
+
+test('signature-prefixed frontmatter with blank lines and CRLF remains metadata', () => {
+  const markdown = '\uFEFF---\r\ntitle: hidden\r\n\r\nnote: metadata\r\nvalue: hidden\r\n\r\n---\r\n\r\n~~~sh\r\nExample code.\r\n~~~\r\nA repository browser.';
+  assert.equal(firstParagraph(markdown), 'A repository browser.');
+});
+
 test('first paragraph skips headings, badges, front matter, code, and lists', () => {
   const readme = [
     '---', 'title: x', '---', '# Tool', '',

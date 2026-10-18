@@ -16,6 +16,72 @@ function metadataFixture(t: TestContext): string {
 
 const metadataReadLimit = 256 * 1024;
 
+for (const name of ['Cargo.toml', 'pyproject.toml']) {
+  for (const [label, literal, expected] of [
+    ['quoted text', String.raw`"A \"quoted\" tool."`, 'A "quoted" tool.'],
+    ['literal backslashes', String.raw`"Paths C:\\tools\\bin."`, String.raw`Paths C:\tools\bin.`],
+    ['escaped whitespace', String.raw`"A\n \tB\r\f C\b D."`, 'A B C D.'],
+    ['four-digit Unicode', String.raw`"An \u03b1 project."`, 'An α project.'],
+    ['eight-digit Unicode', String.raw`"A \U0001F600 tool."`, 'A 😀 tool.'],
+    ['short Unicode', String.raw`"A Jos\xE9 tool."`, 'A José tool.'],
+    ['escaped control', String.raw`"A\e tool."`, 'A tool.'],
+    ['escaped backslash decoded once', String.raw`"A \\u0061 tool."`, String.raw`A \u0061 tool.`],
+    ['Unicode backslash decoded once', String.raw`"A \u005cu0061 tool."`, String.raw`A \u0061 tool.`],
+    ['largest scalar', String.raw`"A \U0010FFFF tool."`, `A ${String.fromCodePoint(0x10ffff)} tool.`],
+  ]) {
+    test(`TOML description ${name} decodes ${label}`, t => {
+      const root = metadataFixture(t);
+      const manifest = `description = ${literal}\n`;
+      const file = join(root, name);
+      writeFileSync(file, manifest);
+      writeFileSync(join(root, 'README.md'), 'README fallback.\n');
+      const before = lstatSync(file);
+
+      assert.deepEqual(describeLocal(root), { description: expected, description_source: 'manifest' });
+      assert.equal(readFileSync(file, 'utf8'), manifest);
+      assert.equal(lstatSync(file).mode, before.mode);
+      assert.equal(lstatSync(file).ino, before.ino);
+    });
+  }
+
+  for (const [label, literal] of [
+    ['unknown escape', String.raw`"A \q tool."`],
+    ['short four-digit escape', String.raw`"A \u12 tool."`],
+    ['invalid short Unicode', String.raw`"A \xG1 tool."`],
+    ['short eight-digit escape', String.raw`"A \U0012 tool."`],
+    ['out-of-range scalar', String.raw`"A \U00110000 tool."`],
+    ['four-digit surrogate', String.raw`"A \uD800 tool."`],
+    ['eight-digit surrogate', String.raw`"A \U0000DFFF tool."`],
+    ['surrogate pair', String.raw`"A \uD83D\uDE00 tool."`],
+    ['raw newline', '"A\n tool."'],
+    ['raw control character', '"A\u001b tool."'],
+  ]) {
+    test(`TOML description ${name} skips ${label}`, t => {
+      const root = metadataFixture(t);
+      const manifest = `description = ${literal}\n`;
+      const file = join(root, name);
+      writeFileSync(file, manifest);
+      writeFileSync(join(root, 'README.md'), 'README fallback.\n');
+
+      assert.deepEqual(describeLocal(root), { description: 'README fallback.', description_source: 'readme' });
+      assert.equal(readFileSync(file, 'utf8'), manifest);
+    });
+  }
+}
+
+test('TOML description fallback retains manifest precedence and decoded length limits', t => {
+  const root = metadataFixture(t);
+  writeFileSync(join(root, 'Cargo.toml'), String.raw`description = "Invalid \q value."`);
+  writeFileSync(join(root, 'pyproject.toml'), `description = "${String.raw`\u0061`.repeat(maxDescription + 1)}"\n`);
+  writeFileSync(join(root, 'README.md'), 'README fallback.\n');
+
+  assert.deepEqual(describeLocal(root), {
+    description: `${'a'.repeat(maxDescription - 1)}…`, description_source: 'manifest',
+  });
+  writeFileSync(join(root, 'package.json'), JSON.stringify({ description: 'JSON still wins.' }));
+  assert.deepEqual(describeLocal(root), { description: 'JSON still wins.', description_source: 'manifest' });
+});
+
 for (const name of ['package.json', 'Cargo.toml', 'pyproject.toml', 'AGENTS.md', 'CLAUDE.md']) {
   test(`a FIFO ${name} does not block description fallback`, t => {
     if (process.platform === 'win32') return t.skip('Requires POSIX named pipes.');

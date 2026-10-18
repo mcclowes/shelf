@@ -41,10 +41,29 @@ function manifestDescription(path: string): string | undefined {
     } catch {}
   }
   for (const file of ['Cargo.toml', 'pyproject.toml']) {
-    const match = readText(join(path, file))?.match(/^description\s*=\s*"((?:[^"\\]|\\.)*)"/m);
-    if (match && clean(match[1])) return clean(match[1]);
+    const match = readText(join(path, file))?.match(/^description[ \t]*=[ \t]*"((?:[^"\\\r\n]|\\[^\r\n])*)"/m);
+    const description = match && decodeTOMLBasicString(match[1]);
+    if (description && clean(description)) return clean(description);
   }
   return undefined;
+}
+
+function decodeTOMLBasicString(value: string): string | undefined {
+  const escapes: Readonly<Record<string, string>> = {
+    b: '\b', t: '\t', n: '\n', f: '\f', r: '\r', e: '\u001b', '"': '"', '\\': '\\',
+  };
+  let valid = !/[\u0000-\u0008\u000a-\u001f\u007f]/.test(value);
+  const decoded = value.replace(/\\(x[\da-fA-F]{2}|u[\da-fA-F]{4}|U[\da-fA-F]{8}|.)/g, (_, sequence: string) => {
+    const escaped = escapes[sequence];
+    if (escaped !== undefined) return escaped;
+    const point = Number.parseInt(sequence.slice(1), 16);
+    if (!Number.isInteger(point) || point > 0x10ffff || (point >= 0xd800 && point <= 0xdfff)) {
+      valid = false;
+      return '';
+    }
+    return String.fromCodePoint(point);
+  });
+  return valid ? decoded : undefined;
 }
 
 function readmeFile(path: string): string | undefined {

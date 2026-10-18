@@ -43,7 +43,7 @@ A repository can declare its relations in a \`.shelf.json\` at its root, which t
 
 ## Keeping the index fresh
 
-Results include \`scanned_at\`. If it is more than a week old, or a repository you expect is missing, run \`shelf scan\`. It reuses the configured roots and GitHub owners and writes only Shelf's own index.
+Results include \`scanned_at\`. If it is more than a week old, or a repository you expect is missing, run \`shelf scan\`. It reuses saved roots and GitHub owners, then writes both the saved configuration and repository index in \`~/.config/shelf\` (or \`SHELF_HOME\`). Passing \`--root\` or \`--github\` replaces that saved list; \`--no-github\` clears saved owners.
 
 ## Improving descriptions
 

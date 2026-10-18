@@ -38,6 +38,7 @@ const maxDepth = 12;
 
 /** Validate every root before replacing scan state; with none, fall back to ~/Development. */
 function resolveRoots(requested: string[] | undefined, saved: string[]): string[] {
+  if (requested?.includes('')) throw new Error('--root must not be empty.');
   let roots = requested?.map(root => resolve(root)) ?? saved;
   if (!roots.length) {
     if (!existsSync(defaultRoot)) throw new Error('No roots configured. Pass --root <directory>.');

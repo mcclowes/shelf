@@ -403,6 +403,111 @@ test('scan reuses saved roots and owners, and --no-github drops owners', t => {
   assert.equal(json('show', 'alpha').description, 'Local alpha readme.');
 });
 
+function emptyRootSnapshot(directory: string): Record<string, { mode: number; content: string }> {
+  const entries: Record<string, { mode: number; content: string }> = {};
+  const visit = (parent: string, prefix: string) => {
+    for (const name of readdirSync(parent).sort()) {
+      const path = join(parent, name);
+      const relative = prefix ? `${prefix}/${name}` : name;
+      const info = lstatSync(path);
+      entries[relative] = { mode: info.mode, content: info.isSymbolicLink() ? readlinkSync(path) : info.isFile() ? readFileSync(path).toString('base64') : '' };
+      if (info.isDirectory()) visit(path, relative);
+    }
+  };
+  visit(directory, '');
+  return entries;
+}
+
+function recordFixtureGithubCalls(directory: string) {
+  const marker = join(directory, 'github-calls.log');
+  write(join(directory, 'bin/gh'), `#!${process.execPath}\nconst fs = require('node:fs');
+fs.appendFileSync(${JSON.stringify(marker)}, 'called\\n');
+process.stdout.write(fs.readFileSync(${JSON.stringify(join(directory, 'gh.json'))}, 'utf8'));
+`);
+  chmodSync(join(directory, 'bin/gh'), 0o755);
+  return marker;
+}
+
+test('empty scan roots preserve saved state and never invoke GitHub', t => {
+  const { dir, root, run, json } = fixture(t);
+  json('scan', '--root', root, '--github', 'acme');
+  chmodSync(join(dir, 'config/config.json'), 0o600);
+  chmodSync(join(dir, 'config/index.json'), 0o640);
+  const marker = recordFixtureGithubCalls(dir);
+  const otherRoot = join(dir, 'other');
+  repo(otherRoot, 'other-repo');
+  const listed = json('list');
+  const before = emptyRootSnapshot(dir);
+  for (const roots of [[''], ['', otherRoot], [otherRoot, ''], ['', '']]) {
+    const result = run('scan', ...roots.flatMap(root => ['--root', root]), '--github', 'other-owner', '--depth', '0');
+    assert.equal(result.status, 1, result.stderr);
+    assert.equal(result.stdout, '');
+    assert.deepEqual(JSON.parse(result.stderr).error, { kind: 'invalid_request', message: '--root must not be empty.' });
+    assert.equal(existsSync(marker), false);
+    assert.deepEqual(emptyRootSnapshot(dir), before);
+    assert.deepEqual(json('list'), listed);
+  }
+});
+
+test('empty scan roots create no fresh state or GitHub request', t => {
+  const { dir, root, run } = fixture(t);
+  const marker = recordFixtureGithubCalls(dir);
+  const before = emptyRootSnapshot(dir);
+  for (const roots of [[''], ['', root], [root, ''], ['', '']]) {
+    const result = run('scan', ...roots.flatMap(root => ['--root', root]), '--github', 'other-owner', '--depth', '0');
+    assert.equal(result.status, 1, result.stderr);
+    assert.equal(result.stdout, '');
+    assert.deepEqual(JSON.parse(result.stderr).error, { kind: 'invalid_request', message: '--root must not be empty.' });
+    assert.equal(existsSync(marker), false);
+    assert.equal(existsSync(join(dir, 'config')), false);
+    assert.deepEqual(emptyRootSnapshot(dir), before);
+  }
+});
+
+test('non-empty scan roots retain saved, repeated, current, and literal whitespace paths', t => {
+  const { dir, root, json } = fixture(t);
+  assert.equal(json('scan', '--root', root, '--no-github').local, 3);
+  const saved = json('scan', '--no-github');
+  assert.deepEqual(saved.roots, [root]);
+  assert.equal(saved.local, 3);
+  const otherRoot = join(dir, 'other');
+  repo(otherRoot, 'other-repo');
+  const repeated = json('scan', '--root', otherRoot, '--root', root, '--no-github');
+  assert.deepEqual(repeated.roots, [otherRoot, root]);
+  assert.equal(repeated.local, 4);
+  const whitespace = repo(dir, '   ', { 'README.md': 'Literal whitespace fixture.' });
+  const literal = json('scan', '--root', '   ', '--no-github', '--depth', '0');
+  assert.deepEqual(literal.roots, [whitespace]);
+  assert.equal(literal.local, 1);
+  repo(dir, '.', { 'README.md': 'Explicit current-directory fixture.' });
+  const current = json('scan', '--root', '.', '--no-github', '--depth', '0');
+  assert.deepEqual(current.roots, [dir]);
+  assert.equal(current.local, 1);
+});
+
+test('empty scan roots preserve unsupported-flag precedence and help shortcuts', t => {
+  const { dir, run } = fixture(t);
+  write(join(dir, 'config/config.json'), 'invalid saved config\n');
+  write(join(dir, 'config/index.json'), 'invalid saved index\n');
+  const before = emptyRootSnapshot(dir);
+  for (const [args, message] of [
+    [['list', '--root', ''], 'list does not accept --root. Run shelf list --help.'],
+    [['scan', '--root', '', '--skills-dir', 'unused'], 'scan does not accept --skills-dir. Run shelf scan --help.'],
+  ] as const) {
+    const result = run(...args);
+    assert.equal(result.status, 1, result.stderr);
+    assert.equal(result.stdout, '');
+    assert.deepEqual(JSON.parse(result.stderr).error, { kind: 'invalid_request', message });
+  }
+  for (const options of [[], ['scan', '--help'], ['scan', '--version']]) {
+    const result = run(...options, '--root', '');
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stderr, '');
+    assert.equal(JSON.parse(result.stdout).name, 'shelf');
+  }
+  assert.deepEqual(emptyRootSnapshot(dir), before);
+});
+
 for (const depth of ['', '   ', '\t\n', '\u00a0']) {
   test(`scan rejects blank depth ${JSON.stringify(depth)} without replacing saved state`, t => {
     const { dir, root, run, json } = fixture(t);

@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 
+- Explicitly empty scan roots fail before current-directory resolution, GitHub requests, or saved-state replacement.
 - Description trimming avoids splitting Unicode surrogate pairs at the length limit.
 - TOML manifest descriptions decode escaped quotes, Unicode, and whitespace before cleaning, with malformed basic strings falling back to other metadata.
 - Release-note extraction preserves fenced examples and ignores release headings inside fenced preambles.

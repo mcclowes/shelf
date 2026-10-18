@@ -148,6 +148,6 @@ export function firstParagraph(markdown: string, skip: (text: string) => boolean
 export function clean(text: string): string {
   const flat = text.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
   if (flat.length <= maxDescription) return flat;
-  const cut = flat.slice(0, maxDescription - 1);
+  const cut = flat.slice(0, maxDescription - 1).replace(/[\uD800-\uDBFF]$/, '');
   return `${cut.slice(0, cut.lastIndexOf(' ') > maxDescription / 2 ? cut.lastIndexOf(' ') : cut.length)}…`;
 }

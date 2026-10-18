@@ -411,6 +411,50 @@ test('clean strips control characters and caps length at a word boundary', () =>
   assert.ok(long.endsWith('word…'));
 });
 
+for (const [label, scalar] of [
+  ['emoji', '😀'], ['supplementary CJK', '𠀀'], ['largest scalar', String.fromCodePoint(0x10ffff)],
+]) {
+  test(`description truncation preserves Unicode when the cutoff splits ${label}`, () => {
+    const prefix = 'a'.repeat(maxDescription - 2);
+    const result = clean(`${prefix}${scalar}suffix`);
+    assert.equal(result, `${prefix}…`);
+    assert.equal(Buffer.from(result).toString('utf8'), result);
+    assert.ok(result.length <= maxDescription);
+  });
+
+  test(`description truncation retains complete ${label} at neighboring cutoffs`, () => {
+    const before = `${'a'.repeat(maxDescription - 3)}${scalar}`;
+    const after = 'a'.repeat(maxDescription - 1);
+    const exact = `${'a'.repeat(maxDescription - 2)}${scalar}`;
+    assert.equal(clean(`${before}suffix`), `${before}…`);
+    assert.equal(clean(`${after}${scalar}suffix`), `${after}…`);
+    assert.equal(clean(exact), exact);
+  });
+}
+
+for (const [name, source] of [
+  ['package.json', 'manifest'], ['Cargo.toml', 'manifest'], ['pyproject.toml', 'manifest'],
+  ['README.md', 'readme'], ['AGENTS.md', 'agents'], ['CLAUDE.md', 'agents'],
+]) {
+  test(`description truncation keeps ${name} metadata valid in UTF-8`, t => {
+    const root = metadataFixture(t);
+    const prefix = 'a'.repeat(maxDescription - 2);
+    const text = `${prefix}😀suffix`;
+    const content = name === 'package.json' ? JSON.stringify({ description: text })
+      : name.endsWith('.toml') ? `description = "${text}"\n` : `${text}\n`;
+    const file = join(root, name);
+    writeFileSync(file, content);
+    const before = lstatSync(file);
+
+    const result = describeLocal(root);
+    assert.deepEqual(result, { description: `${prefix}…`, description_source: source });
+    assert.equal(Buffer.from(result.description ?? '').toString('utf8'), result.description);
+    assert.equal(readFileSync(file, 'utf8'), content);
+    assert.equal(lstatSync(file).ino, before.ino);
+    assert.equal(lstatSync(file).mode, before.mode);
+  });
+}
+
 test('remotes normalize to host/owner/name', () => {
   assert.equal(normalizeRemote('git@github.com:Acme/app.git'), 'github.com/Acme/app');
   assert.equal(normalizeRemote('https://github.com/acme/app'), 'github.com/acme/app');

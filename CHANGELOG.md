@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 
+- Description trimming avoids splitting Unicode surrogate pairs at the length limit.
 - TOML manifest descriptions decode escaped quotes, Unicode, and whitespace before cleaning, with malformed basic strings falling back to other metadata.
 - Release-note extraction preserves fenced examples and ignores release headings inside fenced preambles.
 - GitHub matching ignores owner/repository casing and deduplicates repeated results while preserving local clones, legacy description overrides, and local relations.

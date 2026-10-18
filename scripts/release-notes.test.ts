@@ -87,3 +87,76 @@ for (const [name, changelog] of [...emptySections, ['valid', '## [1.2.3]\n\n- Sh
     }
   });
 }
+
+const fencedBodies = [
+  ['backticks', '- Example:\n\n```markdown\n## [9.9.9]\n- Example content.\n```\n\n### Details\n\n- Still this release.'],
+  ['tildes and CRLF', '- Example:\r\n\r\n~~~markdown\r\n## [9.9.9]\r\n- Example content.\r\n~~~\r\n\r\n- Still this release.'],
+  ['shorter embedded fences', '- Example:\n\n````markdown\n```\n## [9.9.9]\n- Example content.\n`````\n\n- Still this release.'],
+  ['mismatched embedded fences', '- Example:\n\n```markdown\n~~~\n## [9.9.9]\n- Example content.\n```\n\n- Still this release.'],
+  ['embedded fence runs with trailing text', '- Example:\n\n```markdown\n```not-a-close\n## [9.9.9]\n- Example content.\n```\n\n- Still this release.'],
+  ['over-indented embedded fences', '- Example:\n\n```markdown\n    ```\n## [9.9.9]\n- Example content.\n```\n\n- Still this release.'],
+  ['indented fences and closing whitespace', '- Example:\n\n   ~~~~markdown\n## [9.9.9]\n- Example content.\n ~~~~~ \t\n\n- Still this release.'],
+  ['an unclosed fence', '- Example:\n\n```markdown\n## [9.9.9]\n- This is still code at the end of the document.'],
+] as const;
+
+for (const [name, notes] of fencedBodies) {
+  test(`release notes preserve ${name} without treating code headings as sections`, t => {
+    const newline = name === 'tildes and CRLF' ? '\r\n' : '\n';
+    const nextRelease = name === 'an unclosed fence' ? '' : `${newline}${newline}## [1.2.2]${newline}- Older release.${newline}`;
+    const { run } = notesFixture(t, `# Changelog${newline}${newline}## [1.2.3]${newline}${newline}${notes}${nextRelease}`);
+    const result = run();
+    assert.equal(result.error, undefined);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout, `${notes}\n`);
+    assert.equal(result.stderr, '');
+  });
+}
+
+for (const fence of ['```', '~~~']) {
+  test(`release selection ignores a matching heading inside a ${fence} preamble`, t => {
+    const { run } = notesFixture(t, `# Changelog\n\n${fence}markdown\n## [1.2.3]\n- Example only.\n${fence}\n\n## [1.2.3]\n\n- Actual release.\n\n## [1.2.2]\n- Older release.\n`);
+    const result = run();
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout, '- Actual release.\n');
+  });
+}
+
+test('a matching heading only inside a fence retains the missing-section failure', t => {
+  const { run } = notesFixture(t, '```markdown\n## [1.2.3]\n- Example only.\n```\n');
+  const result = run();
+  assert.equal(result.status, 1);
+  assert.equal(result.stdout, '');
+  assert.match(result.stderr, /CHANGELOG\.md has no section for 1\.2\.3/);
+});
+
+for (const opener of ['```invalid`info', '    ```']) {
+  test(`a non-fence opening (${JSON.stringify(opener)}) does not hide the release heading`, t => {
+    const { run } = notesFixture(t, `${opener}\n\n## [1.2.3]\n- Actual release.\n\n## [1.2.2]\n- Older release.\n`);
+    const result = run();
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout, '- Actual release.\n');
+  });
+}
+
+test('the publication step passes the complete fenced example to the publisher', t => {
+  const notes = fencedBodies[0][1];
+  const { root } = notesFixture(t, `## [1.2.3]\n\n${notes}\n\n## [1.2.2]\n- Older release.\n`);
+  const bin = join(root, 'bin');
+  const trace = join(root, 'publisher.json');
+  mkdirSync(bin);
+  mkdirSync(join(root, 'release'));
+  writeFileSync(join(root, 'release/shelf-1.2.3.tar.gz'), 'Fixture archive');
+  writeFileSync(join(root, 'release/shelf-1.2.3.tar.gz.sha256'), 'Fixture checksum');
+  writeFileSync(join(bin, 'gh'), '#!/usr/bin/env node\nrequire("node:fs").writeFileSync(process.env.PUBLISH_TRACE, JSON.stringify(process.argv.slice(2)));\n');
+  chmodSync(join(bin, 'gh'), 0o755);
+  const result = spawnSync('bash', ['-e', '-c', publicationScript], {
+    cwd: root, encoding: 'utf8', timeout: 10000,
+    env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, GH_TOKEN: '', GITHUB_TOKEN: '', GITHUB_REF_NAME: 'v1.2.3', PUBLISH_TRACE: trace },
+  });
+  assert.equal(result.error, undefined);
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(readFileSync(trace, 'utf8')), [
+    'release', 'create', 'v1.2.3', 'release/shelf-1.2.3.tar.gz', 'release/shelf-1.2.3.tar.gz.sha256', '--verify-tag', '--notes-file', 'release-notes.md',
+  ]);
+  assert.equal(readFileSync(join(root, 'release-notes.md'), 'utf8'), `${notes}\n`);
+});

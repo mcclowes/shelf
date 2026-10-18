@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 
+- Release-note extraction preserves fenced examples and ignores release headings inside fenced preambles.
 - GitHub matching ignores owner/repository casing and deduplicates repeated results while preserving local clones, legacy description overrides, and local relations.
 - Description parsing skips leading indented code while preserving lightly indented prose and paragraph continuation lines.
 - Description parsing skips backtick and tilde fenced examples with matching delimiter rules, preserves adjacent prose, and recognizes a leading UTF-8 signature before fences and frontmatter.

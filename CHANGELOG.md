@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 
+- Skill synchronization rejects an explicitly empty destination before writing into the working directory.
 - Bundled agent guidance describes scan configuration writes alongside index replacement, and the README explains saved scan arguments and empty-root rejection.
 - Explicitly empty scan roots fail before current-directory resolution, GitHub requests, or saved-state replacement.
 - Description trimming avoids splitting Unicode surrogate pairs at the length limit.

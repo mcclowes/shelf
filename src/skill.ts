@@ -62,6 +62,7 @@ function ownedByShelf(dir: string, markerFile: string): boolean {
 }
 
 export function syncSkill(directory: string): { file: string; changed: boolean } {
+  if (directory === '') throw new Error('--skills-dir must not be empty.');
   const dir = join(resolve(directory), skillName);
   const file = join(dir, 'SKILL.md');
   const markerFile = join(dir, marker);

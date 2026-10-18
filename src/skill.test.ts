@@ -1,6 +1,6 @@
 import { test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
-import { lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -165,3 +165,82 @@ for (const name of ['SKILL.md', '.shelf-owned']) {
     assert.deepEqual(snapshot(root), before);
   });
 }
+
+function skillCli(root: string, ...args: string[]) {
+  return spawnSync(process.execPath, [new URL('./main.ts', import.meta.url).pathname, ...args], {
+    cwd: root, encoding: 'utf8', timeout: 10000,
+    env: { ...process.env, HOME: join(root, 'home'), SHELF_HOME: join(root, 'config') },
+  });
+}
+
+for (const existing of [false, true]) {
+  test(`empty skills directory preserves a ${existing ? 'previously owned' : 'fresh'} destination`, t => {
+    const { root } = fixture(t);
+    if (existing) {
+      const { file } = syncSkill(root);
+      writeFileSync(file, 'Previous generated fixture guidance.\n');
+      chmodSync(file, 0o600);
+      chmodSync(join(dirname(file), '.shelf-owned'), 0o640);
+      writeFileSync(join(dirname(file), 'notes.md'), 'Keep fixture notes.\n');
+    }
+    const before = snapshot(root);
+
+    const result = skillCli(root, 'sync', '--skills-dir', '');
+
+    assert.equal(result.status, 1, result.stderr);
+    assert.equal(result.stdout, '');
+    assert.deepEqual(JSON.parse(result.stderr).error, { kind: 'invalid_request', message: '--skills-dir must not be empty.' });
+    assert.deepEqual(snapshot(root), before);
+  });
+}
+
+test('empty skills directory is rejected by direct skill synchronization', t => {
+  const { root } = fixture(t);
+  const before = snapshot(root);
+  const source = new URL('./skill.ts', import.meta.url).href;
+  const script = `import assert from 'node:assert/strict';
+const { syncSkill } = await import(${JSON.stringify(source)});
+assert.throws(() => syncSkill(''), { message: '--skills-dir must not be empty.' });`;
+  const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
+    cwd: root, encoding: 'utf8', timeout: 10000,
+    env: { ...process.env, HOME: join(root, 'home'), SHELF_HOME: join(root, 'config') },
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, '');
+  assert.deepEqual(snapshot(root), before);
+});
+
+test('non-empty skills directories retain defaults and literal destinations', t => {
+  const { root } = fixture(t);
+  for (const directory of [undefined, 'custom skills', '   ', '.']) {
+    const options = directory === undefined ? [] : ['--skills-dir', directory];
+    const destination = directory === undefined ? join(root, 'home/.claude/skills') : join(root, directory);
+    const result = skillCli(root, 'sync', ...options);
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(JSON.parse(result.stdout), { file: join(destination, 'shelf/SKILL.md'), changed: true });
+    assert.equal(readFileSync(join(destination, 'shelf/SKILL.md'), 'utf8'), skillText);
+    const repeated = skillCli(root, 'sync', ...options);
+    assert.equal(repeated.status, 0, repeated.stderr);
+    assert.deepEqual(JSON.parse(repeated.stdout), { file: join(destination, 'shelf/SKILL.md'), changed: false });
+  }
+});
+
+test('empty skills directory preserves flag precedence and shortcuts', t => {
+  const { root } = fixture(t);
+  mkdirSync(join(root, 'config'));
+  writeFileSync(join(root, 'config/index.json'), 'invalid saved index\n');
+  const before = snapshot(root);
+  const unsupported = skillCli(root, 'list', '--skills-dir', '');
+  assert.equal(unsupported.status, 1, unsupported.stderr);
+  assert.equal(unsupported.stdout, '');
+  assert.deepEqual(JSON.parse(unsupported.stderr).error, {
+    kind: 'invalid_request', message: 'list does not accept --skills-dir. Run shelf list --help.',
+  });
+  for (const options of [[], ['sync', '--help'], ['sync', '--version']]) {
+    const result = skillCli(root, ...options, '--skills-dir', '');
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stderr, '');
+    assert.equal(JSON.parse(result.stdout).name, 'shelf');
+  }
+  assert.deepEqual(snapshot(root), before);
+});

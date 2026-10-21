@@ -42,7 +42,7 @@ function fixture(t: TestContext) {
   write(join(dir, 'bin', 'gh'), `#!/bin/sh\ncat "${join(dir, 'gh.json')}"\n`);
   chmodSync(join(dir, 'bin', 'gh'), 0o755);
   const run = (...args: string[]) => spawnSync(process.execPath, [main.pathname, ...args], {
-    cwd: dir, encoding: 'utf8', env: { ...process.env, SHELF_HOME: join(dir, 'config'), PATH: `${join(dir, 'bin')}:${process.env.PATH}` },
+    cwd: dir, encoding: 'utf8', env: { ...process.env, HOME: dir, SHELF_HOME: join(dir, 'config'), PATH: `${join(dir, 'bin')}:${process.env.PATH}` },
   });
   const json = (...args: string[]) => {
     const result = run(...args);
@@ -92,7 +92,7 @@ for (const name of ['config', 'HEAD']) {
 
       const result = spawnSync(process.execPath, [main.pathname, 'scan', '--root', root, '--no-github'], {
         cwd: dir, encoding: 'utf8', timeout: 5000, killSignal: 'SIGKILL',
-        env: { ...process.env, SHELF_HOME: join(dir, 'config'), PATH: `${join(dir, 'bin')}:${process.env.PATH}` },
+        env: { ...process.env, HOME: dir, SHELF_HOME: join(dir, 'config'), PATH: `${join(dir, 'bin')}:${process.env.PATH}` },
       });
       assert.equal(result.error, undefined);
       assert.equal(result.status, 0, result.stderr);
@@ -170,7 +170,7 @@ test('repeated Git metadata reads retain usable descriptors under a low open-fil
   `;
   const result = spawnSync('/bin/sh', ['-c', 'ulimit -n 64 && exec "$@"', 'shelf-descriptor-test', process.execPath, '--input-type=module', '-e', script], {
     cwd: dir, encoding: 'utf8', timeout: 5000, killSignal: 'SIGKILL',
-    env: { ...process.env, SHELF_HOME: join(dir, 'config') },
+    env: { ...process.env, HOME: dir, SHELF_HOME: join(dir, 'config') },
   });
   assert.equal(result.error, undefined);
   assert.equal(result.status, 0, result.stderr);
@@ -844,7 +844,7 @@ test('a restrictive child umask affects new files but preserves existing permiss
   const run = (...args: string[]) => {
     const result = spawnSync(process.execPath, ['--import', preload, main.pathname, ...args], {
       cwd: dir, encoding: 'utf8', timeout: 10000,
-      env: { ...process.env, SHELF_HOME: join(dir, 'config'), PATH: `${join(dir, 'bin')}:${process.env.PATH}` },
+      env: { ...process.env, HOME: dir, SHELF_HOME: join(dir, 'config'), PATH: `${join(dir, 'bin')}:${process.env.PATH}` },
     });
     assert.equal(result.status, 0, result.stderr);
     return JSON.parse(result.stdout);
@@ -1014,7 +1014,7 @@ for (const linked of [false, true]) {
 
     const scanned = spawnSync(process.execPath, [main.pathname, 'scan', '--root', root, '--no-github'], {
       cwd: dir, encoding: 'utf8', timeout: 5000, killSignal: 'SIGKILL',
-      env: { ...process.env, SHELF_HOME: join(dir, 'config'), PATH: `${join(dir, 'bin')}:${process.env.PATH}` },
+      env: { ...process.env, HOME: dir, SHELF_HOME: join(dir, 'config'), PATH: `${join(dir, 'bin')}:${process.env.PATH}` },
     });
     assert.equal(scanned.error, undefined);
     assert.equal(scanned.status, 0, scanned.stderr);

@@ -9,7 +9,7 @@
 import { parseArgs } from 'node:util';
 import { contract } from './contract.ts';
 import { renderVersion } from './output.ts';
-import { commandOptions, resolveCommand } from './commands.ts';
+import { commandOptions, resolveCommand, runCommand } from './commands.ts';
 
 const outputFormats = ['auto', 'json', 'text'] as const;
 const maxLimit = 10000;
@@ -19,8 +19,8 @@ try {
   const { positionals, options, format, limit } = parseCli();
   if (options.version) print({ name: 'shelf', version: contract.version }, format, renderVersion);
   else {
-    const { command, args } = resolveCommand(options.help ? ['help', ...positionals.slice(0, 1)] : positionals, options);
-    print(await command.run({ args, options, limit }), format, command.text);
+    const { name, command, args } = resolveCommand(options.help ? ['help', ...positionals.slice(0, 1)] : positionals, options);
+    print(await runCommand(name, command, { args, options, limit }), format, command.text);
   }
 } catch (error) {
   process.stderr.write(`${JSON.stringify({ error: { kind: 'invalid_request', message: error instanceof Error ? error.message : String(error) } })}\n`);

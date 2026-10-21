@@ -3,15 +3,39 @@
  * purpose: Write the global agent skill that teaches agents to query Shelf instead of walking the filesystem.
  * ---
  */
-import { lstatSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { maxDescription } from './describe.ts';
+import { writeText } from './store.ts';
 
 export const defaultSkillsDir = join(homedir(), '.claude', 'skills');
 const skillName = 'shelf';
 const marker = '.shelf-owned';
 const markerText = 'shelf-skill-v1\n';
+// Generated templates shipped before content fingerprints were recorded.
+const legacyHashes = new Set([
+  'a585a475920a4ce7a5ac011e8701ef13ed65861a86501c58326f7441a4cc6a44', // v0.2.0
+  '844e014bbf824e8bba5d6faf0eb69c9c38cd4b6d6eba22a14b80198e179f06fc', // v0.3.0
+  '6864ce649bd5100ef4c94483076fa88ebd18b0dd824ee3c153d410a469833cbf', // Previous unreleased guidance
+]);
+const fingerprint = (text: string) => createHash('sha256').update(text).digest('hex');
+
+export function skillDirectories(configured: string[] = []): string[] {
+  const home = homedir();
+  return [...new Set([
+    ...(existsSync(join(home, '.claude')) ? [join(home, '.claude/skills')] : []),
+    ...(existsSync(join(home, '.codex')) || existsSync(join(home, '.agents')) ? [join(home, '.agents/skills')] : []),
+    ...configured,
+  ])];
+}
+
+export function syncAutomaticSkills(directories: string[], warning: (error: unknown) => void) {
+  return directories.flatMap(directory => {
+    try { return [syncSkill(directory, true)]; } catch (error) { warning(error); return []; }
+  });
+}
 
 export const skillText = `---
 name: shelf
@@ -43,7 +67,11 @@ A repository can declare its relations in a \`.shelf.json\` at its root, which t
 
 ## Keeping the index fresh
 
-Results include \`scanned_at\`. If it is more than a week old, or a repository you expect is missing, run \`shelf scan\`. It reuses saved roots and GitHub owners, then writes both the saved configuration and repository index in \`~/.config/shelf\` (or \`SHELF_HOME\`). Passing \`--root\` or \`--github\` replaces that saved list; \`--no-github\` clears saved owners.
+Queries create a missing index and refresh one older than 24 hours automatically. Results include \`scanned_at\`. If a refresh fails, Shelf warns on stderr, returns the previous index, and waits five minutes before retrying. Use \`--no-refresh\` for a query that only reads cached state.
+
+Run \`shelf scan\` to refresh immediately when a repository you expect is missing. It reuses saved roots, scan depth, and GitHub owners, then writes both the saved configuration and repository index in \`~/.config/shelf\` (or \`SHELF_HOME\`). Passing \`--root\` or \`--github\` replaces that saved list; \`--no-github\` clears saved owners. GitHub indexing requires choosing owners once with \`shelf scan --github <owner>\`.
+
+Operational commands also update Shelf-owned guidance for detected Claude and Codex installations and saved custom destinations. Automatic updates preserve edited or unowned skills. Help, schema, and version commands never perform setup.
 
 ## Improving descriptions
 
@@ -61,17 +89,28 @@ function ownedByShelf(dir: string, markerFile: string): boolean {
   return lstatSync(dir).isDirectory() && lstatSync(markerFile, { throwIfNoEntry: false })?.isFile() === true && readFileSync(markerFile, 'utf8') === markerText;
 }
 
-export function syncSkill(directory: string): { file: string; changed: boolean } {
+export function syncSkill(directory: string, automatic = false): { file: string; changed: boolean } {
   if (directory === '') throw new Error('--skills-dir must not be empty.');
   const dir = join(resolve(directory), skillName);
   const file = join(dir, 'SKILL.md');
   const markerFile = join(dir, marker);
+  const hashFile = join(dir, '.shelf-content.sha256');
   if (lstatSync(dir, { throwIfNoEntry: false }) && !ownedByShelf(dir, markerFile)) throw new Error(`${dir} exists and was not written by Shelf. Move it, or pass --skills-dir.`);
   const entry = lstatSync(file, { throwIfNoEntry: false });
   if (entry && !entry.isFile()) throw new Error(`${file} exists and is not a regular file. Move it, or pass --skills-dir.`);
-  if (entry && readFileSync(file, 'utf8') === skillText) return { file, changed: false };
+  const hashEntry = lstatSync(hashFile, { throwIfNoEntry: false });
+  if (hashEntry && (!hashEntry.isFile() || hashEntry.size > 65)) throw new Error(`${hashFile} is not a regular content fingerprint.`);
+  const previous = entry ? readFileSync(file, 'utf8') : undefined;
+  const previousHash = previous === undefined ? undefined : fingerprint(previous);
+  const savedHash = hashEntry ? readFileSync(hashFile, 'utf8').trim() : undefined;
+  if (automatic && previous !== undefined && previous !== skillText && previousHash !== savedHash && !(!hashEntry && legacyHashes.has(previousHash!))) {
+    throw new Error(`${file} was edited; automatic updates preserved it. Run shelf sync --skills-dir ${resolve(directory)} to replace it.`);
+  }
+  const changed = previous !== skillText;
   mkdirSync(dir, { recursive: true });
-  writeFileSync(file, skillText);
-  writeFileSync(markerFile, markerText);
-  return { file, changed: true };
+  if (changed) writeText(file, skillText);
+  const hash = fingerprint(skillText);
+  if (savedHash !== hash) writeText(hashFile, `${hash}\n`);
+  if (!lstatSync(markerFile, { throwIfNoEntry: false })) writeText(markerFile, markerText);
+  return { file, changed };
 }

@@ -1,13 +1,13 @@
 import { test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { skillText, syncSkill } from './skill.ts';
 
 function fixture(t: TestContext) {
-  const root = mkdtempSync(join(tmpdir(), 'shelf-skill-'));
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'shelf-skill-')));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const skills = join(root, 'skills');
   const { file } = syncSkill(skills);
@@ -244,3 +244,20 @@ test('empty skills directory preserves flag precedence and shortcuts', t => {
   }
   assert.deepEqual(snapshot(root), before);
 });
+
+for (const kind of ['symlink', 'directory']) {
+  test(`skill synchronization refuses a ${kind} content fingerprint`, t => {
+    const { root, skills, file } = fixture(t);
+    const hash = join(dirname(file), '.shelf-content.sha256');
+    rmSync(hash);
+    if (kind === 'directory') mkdirSync(hash);
+    else {
+      const target = join(root, 'manual-fingerprint');
+      writeFileSync(target, 'Keep manual state.\n');
+      symlinkSync(target, hash);
+    }
+    const before = snapshot(root);
+    assert.throws(() => syncSkill(skills, true), /not a regular content fingerprint/);
+    assert.deepEqual(snapshot(root), before);
+  });
+}

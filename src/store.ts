@@ -32,7 +32,7 @@ export type Repo = {
 export type DeclaredRelation = { ref: string; relation?: string };
 /** Keys are `overrideKey` values, so local relations survive moves like description overrides. */
 export type LocalRelation = { from: string; to: string; relation?: string };
-export type Config = { version: 1; roots: string[]; github: string[]; overrides: Record<string, string>; relations: LocalRelation[] };
+export type Config = { version: 1; roots: string[]; github: string[]; overrides: Record<string, string>; relations: LocalRelation[]; depth?: number; skill_dirs?: string[] };
 export type Index = { version: 1; scanned_at: string; roots: string[]; github: string[]; truncated: boolean; repos: Repo[] };
 
 export const shelfHome = () => process.env.SHELF_HOME ?? join(homedir(), '.config', 'shelf');
@@ -50,7 +50,8 @@ export function readConfig(): Config {
   if (!existsSync(path)) return { version: 1, roots: [], github: [], overrides: {}, relations: [] };
   const data = JSON.parse(readFileSync(path, 'utf8'));
   if (data.version !== 1) throw new Error(`Unsupported Shelf configuration at ${path}.`);
-  return { version: 1, roots: data.roots ?? [], github: data.github ?? [], overrides: data.overrides ?? {}, relations: data.relations ?? [] };
+  return { version: 1, roots: data.roots ?? [], github: data.github ?? [], overrides: data.overrides ?? {}, relations: data.relations ?? [],
+    ...(data.depth !== undefined ? { depth: data.depth } : {}), ...(data.skill_dirs ? { skill_dirs: data.skill_dirs } : {}) };
 }
 
 export const writeConfig = (config: Config) => writeJson(configPath(), config);
@@ -65,14 +66,16 @@ export function readIndex(): Index {
 
 export const writeIndex = (index: Index) => writeJson(indexPath(), index);
 
-function writeJson(path: string, data: unknown): void {
+export const writeJson = (path: string, data: unknown) => writeText(path, `${JSON.stringify(data, null, 2)}\n`);
+
+export function writeText(path: string, text: string): void {
   mkdirSync(dirname(path), { recursive: true });
   const mode = existsSync(path) ? statSync(path).mode & 0o777 : undefined;
   const staging = mkdtempSync(`${path}.`);
   try {
     chmodSync(staging, 0o700);
     const temporary = join(staging, 'state.json');
-    writeFileSync(temporary, `${JSON.stringify(data, null, 2)}\n`, { mode });
+    writeFileSync(temporary, text, { mode });
     // Creation applies the current umask, so restore the exact saved mode before replacement.
     if (mode !== undefined) chmodSync(temporary, mode);
     renameSync(temporary, path);

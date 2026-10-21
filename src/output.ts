@@ -35,7 +35,7 @@ export function renderHelp(): string {
   return [
     `Shelf ${contract.version} — ${contract.description}`, '',
     ...contract.commands.map(command => `  ${usage(command)}\n    ${command.description}`),
-    '', 'Options: --output auto|json|text, --limit 100, --help, --version',
+    '', 'Options: --output auto|json|text, --limit 100, --no-refresh, --help, --version',
   ].join('\n');
 }
 
@@ -75,7 +75,11 @@ export function renderRelation(result: { cleared: string; to: string } | { relat
   return 'cleared' in result ? `Removed local relation from ${result.cleared} to ${result.to}` : `Related ${result.related} to ${result.to}`;
 }
 
-export const renderSync = (result: { file: string; changed: boolean }) => `${result.changed ? 'Wrote' : 'Unchanged'} ${result.file}`;
+type SyncedSkill = { file: string; changed: boolean };
+export function renderSync(result: { file?: string; changed?: boolean; files?: SyncedSkill[] }): string {
+  const files = result.files ?? (result.file ? [{ file: result.file, changed: result.changed }] : []);
+  return files.map(file => `${file.changed ? 'Wrote' : 'Unchanged'} ${file.file}`).join('\n') || 'No agent skills updated.';
+}
 
 export function renderRepo(repo: ShownRepo): string {
   const rows: [string, unknown][] = [

@@ -14,14 +14,15 @@ Shelf follows the same principles as [CLIP](https://github.com/mcclowes/clip):
 ```sh
 brew install mcclowes/shelf/shelf
 shelf --version
+shelf list                                       # first query indexes ~/Development
 ```
 
-The Homebrew formula installs Node.js 24 or later.
+The Homebrew formula installs Node.js 24 or later. The first query builds a local index and installs Shelf guidance for detected Claude and Codex installations. No background service is needed.
 
 ## Use
 
 ```sh
-shelf scan --root ~/Development --github mcclowes   # saved; later scans reuse them
+shelf scan --github mcclowes                       # optional; choose GitHub owners once
 shelf search billing api
 shelf search FETTLE_SERVICE_SECRET                  # finds repositories linked by a relation explanation
 shelf show clip
@@ -29,12 +30,18 @@ shelf list --undescribed
 shelf describe delta "Payments service for the Kiln web app"
 shelf related clip                                  # both directions
 shelf relate kiln-web delta "Calls the payments API"   # this machine only
-shelf sync                                          # writes ~/.claude/skills/shelf
+shelf sync                                          # updates guidance for detected agents
 ```
 
-`shelf sync` installs a global skill that tells agents to use `search` and `show`, to read a repository's `AGENTS.md` or README once they have its path, and to fill in missing descriptions. It only refreshes a real Shelf-owned directory with a regular ownership marker and skill file; linked or nonregular entries are refused. An alias for the parent skills directory is supported.
+Shelf updates its global agent guidance after successful operational commands. Claude guidance lives in `~/.claude/skills/shelf`; Codex guidance lives in `~/.agents/skills/shelf`, detected through `~/.codex` or `~/.agents`. Agents learn to query Shelf, read the repository's own instructions, and improve missing descriptions. With no detected agent installation, queries leave skills alone; explicit `shelf sync` falls back to `~/.claude/skills`.
 
-`shelf scan` writes both the saved configuration and the repository index. Passing `--root` or `--github` replaces that saved list; omitted flags reuse the saved values. `--no-github` clears the saved GitHub owners.
+`shelf sync --skills-dir <directory>` writes and remembers a custom destination for future automatic updates. Only real Shelf-owned directories with regular ownership markers and skill files can be updated. Automatic updates also compare content fingerprints, preserving manual edits; known untouched older templates migrate automatically. To replace an edited owned skill explicitly, use `shelf sync --skills-dir <directory>`. Unowned or linked entries are refused. An alias for the parent skills directory is supported.
+
+`shelf scan` writes both the saved configuration and the repository index. Passing `--root` or `--github` replaces that saved list; omitted flags reuse the saved values. Scan depth is also saved. `--no-github` clears the saved GitHub owners. GitHub owners are never inferred from authentication.
+
+Queries (`list`, `search`, `show`, and `related`) create a missing index or refresh one older than 24 hours. Failed refreshes return the previous usable index and a structured warning on stderr, with a five-minute retry delay. A damaged index is reported and preserved. Use `shelf scan` to force a refresh, or `--no-refresh` to query cached state without automatic writes or network requests.
+
+State updates are serialized across CLI processes. Queries use the existing cache while another command updates it; first queries without a cache and explicit mutations wait up to 65 seconds. Locks left by exited processes are recovered automatically. Skill conflicts are warnings during automatic maintenance, so one agent's custom guidance doesn't prevent another agent's setup.
 
 ## Related repositories
 
@@ -74,6 +81,7 @@ The configuration and the index live in `~/.config/shelf`. Set `SHELF_HOME` to u
 - List results use an `items` envelope with `total`, `truncated`, and `scanned_at`. `--limit` defaults to 100.
 - Failures exit with status 1 and write a structured error to stderr.
 - Command-specific flags are accepted only by the command that advertises them. Flags belonging to another command fail before scans or saved-state access. Global flags remain available to every command.
+- Query commands advertise `mutating: true` because they maintain Shelf's own state and guidance. `--no-refresh` disables that maintenance; explicit mutations such as `scan` and `sync` still run. Help, schema, capabilities, and version never perform setup.
 - `shelf schema` describes the CLI offline.
 
 ## Development

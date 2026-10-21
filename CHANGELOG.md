@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+- First queries build a local index and set up guidance for detected Claude and Codex installations. Queries refresh day-old indexes, preserve usable cached results offline, and support `--no-refresh` for cached-only reads.
+- Operational commands refresh untouched Shelf-owned skills, including legacy templates and remembered custom destinations, while preserving manual edits and unowned files.
+- State updates are serialized across processes to prevent scans from overwriting concurrent description or relation changes; scan depth survives refreshes.
 - Skill synchronization rejects an explicitly empty destination before writing into the working directory.
 - Bundled agent guidance describes scan configuration writes alongside index replacement, and the README explains saved scan arguments and empty-root rejection.
 - Explicitly empty scan roots fail before current-directory resolution, GitHub requests, or saved-state replacement.

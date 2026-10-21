@@ -14,17 +14,19 @@ import type { parseArgs, ParseArgsConfig } from 'node:util';
 import { contract } from './contract.ts';
 import { clean } from './describe.ts';
 import { listGithub, validOwner } from './github.ts';
+import { maintain, warn } from './maintenance.ts';
 import { page, renderCommandHelp, renderDescribed, renderHelp, renderItems, renderRelation, renderRepo, renderScan, renderSync } from './output.ts';
 import { readDeclaredRelations, relatedTo, searchableRelationText } from './relations.ts';
 import { applyOverride, findRepo, mergeRepos, searchRepos, summary, withoutOverride } from './repos.ts';
 import { defaultDepth, findRepositories, readLocalRepo } from './scan.ts';
-import { defaultSkillsDir, syncSkill } from './skill.ts';
+import { defaultSkillsDir, skillDirectories, syncAutomaticSkills, syncSkill } from './skill.ts';
 import { identityKey, overrideKey, readConfig, readIndex, writeConfig, writeIndex, type Config, type Index, type Repo } from './store.ts';
 
 /** Flags that commands read; main adds the global ones before parsing. */
 export const commandOptions = {
   root: { type: 'string', multiple: true }, github: { type: 'string', multiple: true }, 'no-github': { type: 'boolean' },
   depth: { type: 'string' }, undescribed: { type: 'boolean' }, clear: { type: 'boolean' }, 'skills-dir': { type: 'string' },
+  'no-refresh': { type: 'boolean' },
 } satisfies ParseArgsConfig['options'];
 export type Options = ReturnType<typeof parseArgs<{ options: typeof commandOptions }>>['values'];
 export type Invocation = { args: string[]; options: Options; limit: number };
@@ -41,7 +43,7 @@ function resolveRoots(requested: string[] | undefined, saved: string[]): string[
   if (requested?.includes('')) throw new Error('--root must not be empty.');
   let roots = requested?.map(root => resolve(root)) ?? saved;
   if (!roots.length) {
-    if (!existsSync(defaultRoot)) throw new Error('No roots configured. Pass --root <directory>.');
+    if (!existsSync(defaultRoot)) throw new Error('No roots configured. Run shelf scan --root <directory>.');
     roots = [defaultRoot];
   }
   const missing = roots.find(root => !existsSync(root));
@@ -55,7 +57,7 @@ function resolveRoots(requested: string[] | undefined, saved: string[]): string[
 function scanTargets(options: Options, config: Config) {
   const roots = resolveRoots(options.root, config.roots);
   const github = options['no-github'] ? [] : (options.github?.map(validOwner) ?? config.github);
-  const depth = Number(options.depth ?? defaultDepth);
+  const depth = Number(options.depth ?? config.depth ?? defaultDepth);
   if (options.depth?.trim() === '' || !Number.isInteger(depth) || depth < 0 || depth > maxDepth) throw new Error(`--depth must be an integer from 0 to ${maxDepth}.`);
   return { roots, github, depth };
 }
@@ -73,7 +75,7 @@ function scan({ options }: Invocation) {
   const remote = github.flatMap(listGithub);
   const repos = mergeRepos(local, remote, config.overrides);
   const index: Index = { version: 1, scanned_at: new Date().toISOString(), roots, github, truncated: found.truncated, repos };
-  writeConfig({ ...config, roots, github });
+  writeConfig({ ...config, roots, github, ...(options.depth !== undefined ? { depth } : {}) });
   writeIndex(index);
   return {
     scanned_at: index.scanned_at, roots, github, truncated: found.truncated,
@@ -146,6 +148,21 @@ function commandHelp(name: string) {
   return { name: contract.name, version: contract.version, command };
 }
 
+function sync({ options }: Invocation) {
+  const config = readConfig();
+  if (options['skills-dir'] !== undefined) {
+    const result = syncSkill(options['skills-dir']);
+    const directory = resolve(options['skills-dir']);
+    const directories = config.skill_dirs ?? [];
+    if (!directories.includes(directory)) writeConfig({ ...config, skill_dirs: [...directories, directory] });
+    return result;
+  }
+  const directories = skillDirectories(config.skill_dirs);
+  if (!directories.length) directories.push(defaultSkillsDir);
+  const files = syncAutomaticSkills(directories, warn);
+  return files.length === 1 ? files[0]! : { ...files[0], files };
+}
+
 const commands: Record<string, Command> = {
   help: command({ minArgs: 0, maxArgs: 1, run: ({ args: [name] }) => name ? commandHelp(name) : contract, text: result => 'command' in result ? renderCommandHelp(result) : renderHelp() }),
   schema: command({ minArgs: 0, maxArgs: 0, run: () => contract, text: renderHelp }),
@@ -167,10 +184,14 @@ const commands: Record<string, Command> = {
   describe: command({ minArgs: 1, maxArgs: 2, run: describe, text: renderDescribed }),
   relate: command({ minArgs: 2, maxArgs: 3, run: relate, text: renderRelation }),
   related: command({ minArgs: 1, maxArgs: 1, run: related, text: renderItems }),
-  sync: command({ minArgs: 0, maxArgs: 0, run: ({ options }) => syncSkill(options['skills-dir'] ?? defaultSkillsDir), text: renderSync }),
+  sync: command({ minArgs: 0, maxArgs: 0, run: sync, text: renderSync }),
 };
 
-export function resolveCommand(positionals: string[], options: Options): { command: Command; args: string[] } {
+export function runCommand(name: string, handler: Command, invocation: Invocation) {
+  return maintain(name, Boolean(invocation.options['no-refresh']), () => handler.run(invocation), () => scan({ args: [], options: {}, limit: invocation.limit }));
+}
+
+export function resolveCommand(positionals: string[], options: Options): { name: string; command: Command; args: string[] } {
   const [name = 'help', ...args] = positionals;
   const command = commands[name];
   if (!command) throw new Error(`Unknown command: ${name}. Run shelf --help.`);
@@ -181,5 +202,5 @@ export function resolveCommand(positionals: string[], options: Options): { comma
     if (foreign) throw new Error(`${name} does not accept --${foreign}. Run shelf ${name} --help.`);
   }
   if (args.length < command.minArgs || args.length > command.maxArgs) throw new Error(`Wrong number of arguments for ${name}. Run shelf --help.`);
-  return { command, args };
+  return { name, command, args };
 }

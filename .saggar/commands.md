@@ -4,7 +4,7 @@
 - Typecheck: `npm run check` #quick #safe #ci
 - Lint: `npm run lint` #quick #safe #ci
 - Build: `npm run build` #quick #safe #ci
-- Release notes: `node scripts/release-notes.mjs 0.3.0` — Extract this version's changelog notes; rejects missing or empty sections #quick #safe
+- Release notes: `node scripts/release-notes.mjs 0.4.0` — Extract this version's changelog notes; rejects missing or empty sections #quick #safe
 - Check version: `node scripts/check-version.mjs` — Compare the exported contract version with package.json #quick #safe #ci
 - Inspect schema: `node dist/main.js schema` — Print the built CLI's offline contract; run Build first #quick #safe #ci
 - Package release: `node scripts/package-release.mjs` — Create or replace the local release archive and checksum; run Build first #quick #writes #ci

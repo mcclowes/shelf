@@ -962,7 +962,7 @@ test('help, version, and valid global flags retain their dispatch behavior', t =
   assert.equal(json('scan', '--clear', '--help').command.name, 'scan');
   assert.equal(json('help', 'scan', '--clear').command.name, 'scan');
   assert.equal(json('--help', '--clear').name, 'shelf');
-  assert.equal(json('scan', '--clear', '--version').version, '0.3.0');
+  assert.equal(json('scan', '--clear', '--version').version, '0.4.0');
   assert.equal(json('--version', '--root', root).name, 'shelf');
   assert.equal(json('schema', '-o', 'json', '--limit', '1').name, 'shelf');
   assert.equal(existsSync(join(dir, 'config')), false);

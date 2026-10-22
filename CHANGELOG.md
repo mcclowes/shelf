@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-22
+
 - First queries build a local index and set up guidance for detected Claude and Codex installations. Queries refresh day-old indexes, preserve usable cached results offline, and support `--no-refresh` for cached-only reads.
 - Operational commands refresh untouched Shelf-owned skills, including legacy templates and remembered custom destinations, while preserving manual edits and unowned files.
 - State updates are serialized across processes to prevent scans from overwriting concurrent description or relation changes; scan depth survives refreshes.

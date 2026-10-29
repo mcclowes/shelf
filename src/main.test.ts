@@ -783,7 +783,8 @@ test('private state staging remains writable when a child umask removes owner pe
   for (const file of files) chmodSync(file, 0o640);
   const parentUmask = process.umask();
   const preload = join(dir, 'owner-umask.mjs');
-  write(preload, 'process.umask(0o700);\n');
+  // Restore permissions at exit so V8 can write a readable coverage profile.
+  write(preload, 'const previous = process.umask(0o700); process.on("exit", () => process.umask(previous));\n');
   const scanned = spawnSync(process.execPath, ['--import', preload, main.pathname, 'scan', '--no-github'], {
     cwd: dir, encoding: 'utf8', timeout: 10000, env: { ...process.env, SHELF_HOME: home },
   });

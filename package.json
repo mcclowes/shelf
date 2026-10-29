@@ -24,6 +24,7 @@
   ],
   "scripts": {
     "test": "node --test src/*.test.ts scripts/*.test.ts",
+    "test:coverage": "node --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-exclude='**/*.test.*' --test-coverage-lines=97 --test-coverage-branches=91 --test-coverage-functions=95 --test src/*.test.ts scripts/*.test.ts",
     "lint": "biome lint",
     "check": "tsc --project tsconfig.check.json",
     "build": "tsc && chmod +x dist/main.js"

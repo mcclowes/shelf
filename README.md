@@ -102,3 +102,14 @@ restoration also fails, the error reports a recovery directory containing the
 previous archive; that directory is retained instead of being cleaned up.
 `node --test scripts/package-release.test.ts` checks failure retention, rollback,
 and staging cleanup with disposable release fixtures.
+
+## Coverage gate
+
+`npm run test:coverage` enforces 97% lines, 91% branches, and 95% functions across loaded `src/`
+modules, excluding tests. CI runs the same command. These floors are rounded down from the measured
+suite on October 29, 2026. Raise them as coverage improves.
+
+Node's built-in coverage doesn't count files the suite never loads. Script tests still run, but
+release tooling isn't part of this CLI source coverage floor. The restrictive-umask fixture restores
+its child's umask at exit so V8 can write a readable profile after the tested file operations
+finish.

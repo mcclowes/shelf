@@ -18,3 +18,5 @@ Packaging stages the archive and computes its checksum before replacing
 `release/shelf-VERSION.tar.gz` and `release/shelf-VERSION.tar.gz.sha256`. These
 are local generated outputs. Saved repository configuration and index data live
 separately in `~/.config/shelf` (or `SHELF_HOME`).
+
+- Coverage gate: `npm run test:coverage` - Run source and script tests and enforce coverage floors for loaded CLI source. #quick #safe #ci
